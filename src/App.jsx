@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Calculator, Home, PieChart, Users, Receipt, Plus, Trash2, Info, UserPlus, LogIn, Mail, Link as LinkIcon, CalendarClock, Lock, User, Table, X, ArrowRight, ArrowLeft, CheckCircle2, Unlock, CheckSquare, Square, Landmark, Coins, TrendingUp, Share2, DownloadCloud, LineChart, Target, Zap, UploadCloud, Loader2, Scale } from 'lucide-react';
+import { Calculator, Home, PieChart, Users, Receipt, Plus, Trash2, Info, UserPlus, LogIn, Mail, Link as LinkIcon, CalendarClock, Lock, User, Table, X, ArrowRight, ArrowLeft, CheckCircle2, Unlock, CheckSquare, Square, Landmark, Coins, TrendingUp, Share2, DownloadCloud, LineChart, Target, Zap, UploadCloud, Loader2, Scale, ChevronDown, LogOut, Car, Wallet, Bell } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
@@ -69,6 +69,7 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiError, setAiError] = useState('');
   const [myPlans, setMyPlans] = useState([]);
+  const [showJoinLobbyModal, setShowJoinLobbyModal] = useState(false);
 
   // --- HESAPLAMA DURUMU (STATE) ---
   const [property, setProperty] = useState({
@@ -1001,72 +1002,103 @@ export default function App() {
 
   if (appRoute === 'lobby') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
-         <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100">
-            <div className="bg-indigo-600 p-8 text-center text-white relative">
-               <button onClick={handleLogout} className="absolute top-4 right-4 text-indigo-200 hover:text-white" title="Çıkış Yap">
-                  <LogIn size={20} className="rotate-180" />
-               </button>
-               <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-                  <Users size={32} />
+      <div className="min-h-screen bg-[#eef4f1] p-5 md:p-8 font-sans">
+         <div className="max-w-5xl mx-auto">
+            {/* HEADER */}
+            <div className="flex justify-between items-center mb-10 pt-2">
+               <div className="flex items-center gap-2 cursor-pointer group">
+                  <h1 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">Ortak Kredim</h1>
+                  <ChevronDown size={24} className="text-slate-800 group-hover:translate-y-1 transition-transform"/>
                </div>
-               <h1 className="text-2xl font-bold">Hoş Geldin, {currentUser?.name}</h1>
-               <p className="text-indigo-200 mt-2 text-sm">Devam etmek için bir plan seçin veya oluşturun.</p>
+               <div className="flex items-center gap-3 text-slate-800">
+                  <button className="hover:bg-slate-200/50 p-3 rounded-full transition-colors relative" title="Bildirimler">
+                     <Bell size={24} />
+                     <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-[#eef4f1]"></span>
+                  </button>
+                  <button onClick={startWizard} className="hover:bg-slate-200/50 p-3 rounded-full transition-colors" title="Yeni Plan Başlat">
+                     <Plus size={28} />
+                  </button>
+                  <button onClick={handleLogout} className="hover:bg-slate-200/50 p-3 rounded-full transition-colors text-red-500" title="Çıkış Yap">
+                     <LogOut size={24} />
+                  </button>
+               </div>
             </div>
 
-            <div className="p-8 space-y-6">
-               {planError && (
-                  <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm text-center border border-red-100 font-medium">
-                     {planError}
-                  </div>
-               )}
+            {/* SEKMELER */}
+            <div className="flex gap-8 overflow-x-auto mb-8 no-scrollbar">
+               <button className="text-xl md:text-2xl font-bold text-slate-800 border-b-[3px] border-slate-800 pb-2">Planlarım</button>
+               <button onClick={() => setShowJoinLobbyModal(true)} className="text-xl md:text-2xl font-semibold text-slate-400 pb-2 hover:text-slate-600 transition-colors">Koda Katıl</button>
+            </div>
 
-               <button onClick={startWizard} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 shadow-md shadow-indigo-200">
-                  <Plus size={20} /> Yeni Ortaklık Planı Başlat
-               </button>
+            {planError && (
+               <div className="bg-red-50 text-red-600 p-4 rounded-2xl text-sm mb-8 border border-red-100 font-bold flex items-center justify-between">
+                  {planError}
+                  <button onClick={() => setPlanError('')} className="bg-red-100 p-1 rounded-full"><X size={16}/></button>
+               </div>
+            )}
 
-               {myPlans.length > 0 && (
-                  <div className="space-y-3 mt-6">
-                     <h3 className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-2">Kayıtlı Planlarım</h3>
-                     <div className="max-h-[250px] overflow-y-auto space-y-2 pr-1">
-                        {myPlans.map(p => (
-                           <button key={p.id} onClick={() => { setCurrentPlanId(p.id); setAppRoute('dashboard'); }} className="w-full flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl hover:border-indigo-400 hover:shadow-md transition-all text-left group">
-                              <div className="flex-1 truncate pr-2">
-                                 <div className="font-bold text-indigo-900 truncate">{p.name}</div>
-                                 <div className="text-[10px] font-bold text-slate-500 flex items-center gap-1 mt-1 uppercase tracking-wider"><Home size={12}/> {p.type} • KOD: {p.id}</div>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                 <div onClick={(e) => removePlanFromLocal(p.id, e)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors" title="Listeden Çıkar">
-                                    <Trash2 size={16}/>
-                                 </div>
-                                 <ArrowRight className="text-slate-300 group-hover:text-indigo-600 transition-colors" size={20}/>
-                              </div>
-                           </button>
-                        ))}
+            {/* AKILLI EV STİLİ KART GRID */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+               
+               {myPlans.map(p => (
+                  <div key={p.id} onClick={() => { setCurrentPlanId(p.id); setAppRoute('dashboard'); }} className="bg-white rounded-[28px] p-5 flex flex-col justify-between aspect-square md:aspect-[4/4.5] cursor-pointer hover:shadow-xl shadow-sm border border-slate-100 transition-all transform hover:-translate-y-1 relative group">
+                     <div className="flex justify-between items-start">
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center ${p.type === 'Konut Kredisi' ? 'bg-blue-50 text-blue-500' : p.type === 'Taşıt (Oto) Kredisi' ? 'bg-orange-50 text-orange-500' : 'bg-emerald-50 text-emerald-500'}`}>
+                           {p.type === 'Konut Kredisi' ? <Home size={24}/> : p.type === 'Taşıt (Oto) Kredisi' ? <Car size={24}/> : <Wallet size={24}/>}
+                        </div>
+                        <button onClick={(e) => removePlanFromLocal(p.id, e)} className="w-10 h-10 bg-slate-50 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors z-10 shadow-inner">
+                           <Trash2 size={18} />
+                        </button>
+                     </div>
+                     <div className="mt-4">
+                        <h3 className="font-bold text-slate-800 text-lg leading-tight mb-1 line-clamp-2">{p.name}</h3>
+                        <p className="text-[11px] text-slate-400 font-medium truncate">{p.type}</p>
+                        <div className="flex items-center gap-1 mt-3">
+                           <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                           <p className="text-[10px] text-slate-400 font-bold tracking-wider uppercase">ID: {p.id}</p>
+                        </div>
                      </div>
                   </div>
-               )}
+               ))}
 
-               <div className="relative flex py-2 items-center">
-                  <div className="flex-grow border-t border-slate-200"></div>
-                  <span className="flex-shrink-0 mx-4 text-slate-400 text-sm font-medium">veya mevcut plana katıl</span>
-                  <div className="flex-grow border-t border-slate-200"></div>
+               {/* YENİ PLAN EKLE KARTI */}
+               <div onClick={startWizard} className="bg-transparent border-[3px] border-dashed border-slate-300/70 rounded-[28px] p-5 flex flex-col justify-center items-center aspect-square md:aspect-[4/4.5] cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/50 transition-all group">
+                  <div className="w-14 h-14 bg-slate-200/50 group-hover:bg-indigo-100 text-slate-400 group-hover:text-indigo-600 rounded-full flex items-center justify-center mb-3 transition-colors">
+                     <Plus size={28} />
+                  </div>
+                  <span className="font-bold text-sm text-slate-500 group-hover:text-indigo-700">Yeni Plan</span>
                </div>
 
-               <form onSubmit={handleJoinPlan} className="space-y-3">
-                  <label className="block text-sm font-medium text-slate-600 text-center">Davet Kodu</label>
-                  <input 
-                     type="text" required
-                     className="w-full p-4 text-center text-2xl tracking-[0.5em] uppercase font-bold bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 focus:bg-white" 
-                     placeholder="XXXXXX" maxLength={6}
-                     value={joinCode} onChange={(e) => setJoinCode(e.target.value)}
-                  />
-                  <button type="submit" className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-md shadow-emerald-200">
-                     Kodu Onayla ve Katıl
-                  </button>
-               </form>
             </div>
          </div>
+
+         {/* JOIN MODAL */}
+         {showJoinLobbyModal && (
+            <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-md flex items-end sm:items-center justify-center z-50 p-4 sm:p-0">
+               <div className="bg-white rounded-[36px] shadow-2xl p-8 w-full max-w-sm relative animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-300">
+                  <button onClick={() => setShowJoinLobbyModal(false)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-800 bg-slate-100 p-2.5 rounded-full transition-colors"><X size={20}/></button>
+                  <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center mb-6">
+                     <LinkIcon size={32} />
+                  </div>
+                  <h3 className="text-2xl font-bold text-slate-800 mb-2">Ortaklığa Katıl</h3>
+                  <p className="text-slate-500 text-sm mb-8 leading-relaxed">Ortağınızın size gönderdiği 6 haneli plan davet kodunu aşağıya giriniz.</p>
+                  
+                  <form onSubmit={(e) => { handleJoinPlan(e); setShowJoinLobbyModal(false); }} className="space-y-4">
+                     <div>
+                        <input 
+                           type="text" required autoFocus
+                           className="w-full p-5 text-center text-3xl tracking-[0.4em] uppercase font-black bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-500 focus:bg-white transition-colors" 
+                           placeholder="XXXXXX" maxLength={6}
+                           value={joinCode} onChange={(e) => setJoinCode(e.target.value)}
+                        />
+                     </div>
+                     <button type="submit" className="w-full py-4.5 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 mt-4">
+                        Kodu Onayla
+                     </button>
+                  </form>
+               </div>
+            </div>
+         )}
       </div>
     );
   }
