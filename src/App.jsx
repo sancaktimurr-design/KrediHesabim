@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Calculator, Home, PieChart, Users, Receipt, Plus, Trash2, Info, UserPlus, LogIn, Mail, Link as LinkIcon, CalendarClock, Lock, User, Table, X, ArrowRight, ArrowLeft, CheckCircle2, Unlock, CheckSquare, Square, Landmark, Coins, TrendingUp, Share2, DownloadCloud, LineChart, Target, Zap, UploadCloud, Loader2 } from 'lucide-react';
+import { Calculator, Home, PieChart, Users, Receipt, Plus, Trash2, Info, UserPlus, LogIn, Mail, Link as LinkIcon, CalendarClock, Lock, User, Table, X, ArrowRight, ArrowLeft, CheckCircle2, Unlock, CheckSquare, Square, Landmark, Coins, TrendingUp, Share2, DownloadCloud, LineChart, Target, Zap, UploadCloud, Loader2, Scale } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
@@ -63,9 +63,11 @@ export default function App() {
   // --- WIZARD (KURULUM) STATE'LERİ ---
   const [wizardStep, setWizardStep] = useState(1);
   const [loanType, setLoanType] = useState('Konut Kredisi');
+  const [planName, setPlanName] = useState('');
   const [partnerCount, setPartnerCount] = useState(2);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [myPlans, setMyPlans] = useState([]);
 
   // --- HESAPLAMA DURUMU (STATE) ---
   const [property, setProperty] = useState({
@@ -90,13 +92,19 @@ export default function App() {
 
   const [paidMonths, setPaidMonths] = useState([]);
 
-  // --- YATIRIM VE KUR TAKİBİ DURUMU ---
+  // --- YATIRIM, KUR VE DEĞERLEME TAKİBİ DURUMU ---
   const defaultInvRates = { dp: {usd:'', eur:'', gold:''}, exp: {usd:'', eur:'', gold:''}, months: {} };
   const [investmentData, setInvestmentData] = useState({
     1: { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates },
     2: { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates }
   });
   const [currentRates, setCurrentRates] = useState({ usd: '', eur: '', gold: '' });
+
+  // Ayrılık & Değerleme (Skalalar)
+  const [valuationMetrics, setValuationMetrics] = useState([
+    { id: 1, name: 'Asgari Ücret', initial: '', current: '' },
+    { id: 2, name: 'En Düşük Memur Maaşı', initial: '', current: '' }
+  ]);
 
   // --- FIREBASE AUTH DİNLEYİCİSİ ---
   useEffect(() => {
@@ -108,15 +116,13 @@ export default function App() {
           uid: user.uid 
         });
         
-        const savedPlan = localStorage.getItem('lastPlanId');
-        if (savedPlan) {
-           setCurrentPlanId(savedPlan);
-           setAppRoute('dashboard');
-        } else {
-           setAppRoute(prev => (prev === 'login' || prev === 'register' ? 'lobby' : prev));
-        }
+        const savedPlans = JSON.parse(localStorage.getItem(`my_plans_${user.uid}`)) || [];
+        setMyPlans(savedPlans);
+        
+        setAppRoute(prev => (prev === 'login' || prev === 'register' ? 'lobby' : prev));
       } else {
         setCurrentUser(null);
+        setMyPlans([]);
         setAppRoute(prev => (prev === 'dashboard' || prev === 'lobby' || prev === 'wizard' ? 'login' : prev));
       }
     });
@@ -137,6 +143,7 @@ export default function App() {
         if (data.paidMonths) setPaidMonths(data.paidMonths);
         if (data.investmentData) setInvestmentData(data.investmentData);
         if (data.currentRates) setCurrentRates(data.currentRates);
+        if (data.valuationMetrics) setValuationMetrics(data.valuationMetrics);
       }
     }, (error) => console.error("Veri çekme hatası:", error));
 
@@ -153,11 +160,28 @@ export default function App() {
     }
   };
 
+  const savePlanToLocal = (id, name, type, uid) => {
+     const current = JSON.parse(localStorage.getItem(`my_plans_${uid}`)) || [];
+     if (!current.find(p => p.id === id)) {
+        const updated = [...current, { id, name, type }];
+        localStorage.setItem(`my_plans_${uid}`, JSON.stringify(updated));
+        setMyPlans(updated);
+     }
+  };
+
+  const removePlanFromLocal = (id, e) => {
+     e.stopPropagation();
+     const updated = myPlans.filter(p => p.id !== id);
+     localStorage.setItem(`my_plans_${currentUser.uid}`, JSON.stringify(updated));
+     setMyPlans(updated);
+  };
+
   // --- LOBİ VE WIZARD İŞLEMLERİ ---
   const generateCode = () => Math.random().toString(36).substring(2, 8).toUpperCase();
 
   const startWizard = () => {
     setWizardStep(1);
+    setPlanName('');
     setPartners([
       { id: 1, name: currentUser.name, uid: currentUser.uid, downPayment: 0, targetShare: 50 }, 
       { id: 2, name: '2. Ortak', uid: '', downPayment: 0, targetShare: 50 }
@@ -168,6 +192,10 @@ export default function App() {
       1: { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates },
       2: { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates }
     });
+    setValuationMetrics([
+      { id: 1, name: 'Asgari Ücret', initial: '', current: '' },
+      { id: 2, name: 'En Düşük Memur Maaşı', initial: '', current: '' }
+    ]);
     setExpenses([
       { id: 1, name: 'Emlakçı Komisyonu', amount: 0, isIncluded: true, splitByLoanRatio: false, paidBy: {} },
       { id: 2, name: 'Tapu Harcı', amount: 0, isIncluded: true, splitByLoanRatio: false, paidBy: {} },
@@ -208,16 +236,28 @@ export default function App() {
 
   const finishWizardAndSave = async () => {
     if (!currentUser) return;
+    if (!planName.trim()) { alert("Lütfen planınıza bir isim verin!"); return; }
     const newCode = generateCode();
     
     const finalProperty = { ...property, currentValue: property.price };
-    const initialData = { property: finalProperty, expenses, partners, paidMonths: [], investmentData, currentRates, createdAt: new Date().toISOString() };
+    const initialData = { 
+      planName,
+      loanType,
+      property: finalProperty, 
+      expenses, 
+      partners, 
+      paidMonths: [], 
+      investmentData, 
+      currentRates, 
+      valuationMetrics,
+      createdAt: new Date().toISOString() 
+    };
     
     try {
       const docRef = doc(db, 'plans', newCode);
       await setDoc(docRef, initialData);
       setCurrentPlanId(newCode);
-      localStorage.setItem('lastPlanId', newCode); 
+      savePlanToLocal(newCode, planName, loanType, currentUser.uid);
       setIsUnlocked(false); 
       setDashboardTab('overview');
       setAppRoute('dashboard');
@@ -248,7 +288,7 @@ export default function App() {
         }
 
         setCurrentPlanId(formattedCode);
-        localStorage.setItem('lastPlanId', formattedCode);
+        savePlanToLocal(formattedCode, data.planName || 'İsimsiz Plan', data.loanType || 'Bilinmiyor', currentUser.uid);
         setIsUnlocked(false);
         setDashboardTab('overview');
         setAppRoute('dashboard');
@@ -481,6 +521,27 @@ export default function App() {
     syncToFirestore({ investmentData: updated });
   };
 
+  // --- VALUATION METRICS (DEĞERLEME) YARDIMCILARI ---
+  const updateValuationMetric = (id, field, value) => {
+    const updated = valuationMetrics.map(m => m.id === id ? { ...m, [field]: value } : m);
+    setValuationMetrics(updated);
+    syncToFirestore({ valuationMetrics: updated });
+  };
+
+  const addValuationMetric = () => {
+    const newId = valuationMetrics.length > 0 ? Math.max(...valuationMetrics.map(m => m.id)) + 1 : 1;
+    const updated = [...valuationMetrics, { id: newId, name: 'Yeni Skala', initial: '', current: '' }];
+    setValuationMetrics(updated);
+    syncToFirestore({ valuationMetrics: updated });
+  };
+
+  const removeValuationMetric = (id) => {
+    const updated = valuationMetrics.filter(m => m.id !== id);
+    setValuationMetrics(updated);
+    syncToFirestore({ valuationMetrics: updated });
+  };
+
+
   const handleEmailLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -527,7 +588,6 @@ export default function App() {
     try {
       await signOut(auth);
       setCurrentPlanId(''); 
-      localStorage.removeItem('lastPlanId'); 
     } catch (error) {
       console.error("Çıkış yapılırken hata:", error);
     }
@@ -908,7 +968,7 @@ export default function App() {
                   <Users size={32} />
                </div>
                <h1 className="text-2xl font-bold">Hoş Geldin, {currentUser?.name}</h1>
-               <p className="text-indigo-200 mt-2 text-sm">Lütfen devam etmek için bir plan seçin.</p>
+               <p className="text-indigo-200 mt-2 text-sm">Devam etmek için bir plan seçin veya oluşturun.</p>
             </div>
 
             <div className="p-8 space-y-6">
@@ -921,6 +981,28 @@ export default function App() {
                <button onClick={startWizard} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 shadow-md shadow-indigo-200">
                   <Plus size={20} /> Yeni Ortaklık Planı Başlat
                </button>
+
+               {myPlans.length > 0 && (
+                  <div className="space-y-3 mt-6">
+                     <h3 className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-2">Kayıtlı Planlarım</h3>
+                     <div className="max-h-[250px] overflow-y-auto space-y-2 pr-1">
+                        {myPlans.map(p => (
+                           <button key={p.id} onClick={() => { setCurrentPlanId(p.id); setAppRoute('dashboard'); }} className="w-full flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl hover:border-indigo-400 hover:shadow-md transition-all text-left group">
+                              <div className="flex-1 truncate pr-2">
+                                 <div className="font-bold text-indigo-900 truncate">{p.name}</div>
+                                 <div className="text-[10px] font-bold text-slate-500 flex items-center gap-1 mt-1 uppercase tracking-wider"><Home size={12}/> {p.type} • KOD: {p.id}</div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                 <div onClick={(e) => removePlanFromLocal(p.id, e)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors" title="Listeden Çıkar">
+                                    <Trash2 size={16}/>
+                                 </div>
+                                 <ArrowRight className="text-slate-300 group-hover:text-indigo-600 transition-colors" size={20}/>
+                              </div>
+                           </button>
+                        ))}
+                     </div>
+                  </div>
+               )}
 
                <div className="relative flex py-2 items-center">
                   <div className="flex-grow border-t border-slate-200"></div>
@@ -968,6 +1050,16 @@ export default function App() {
                {/* ADIM 1: KREDİ TÜRÜ */}
                {wizardStep === 1 && (
                   <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                     <div className="mb-6">
+                        <label className="block text-sm font-bold text-slate-700 mb-2 text-center">Planınıza Bir İsim Verin</label>
+                        <input 
+                           type="text" 
+                           value={planName}
+                           onChange={(e) => setPlanName(e.target.value)}
+                           className="w-full p-4 text-center text-lg rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-indigo-900 bg-white shadow-sm"
+                           placeholder="Örn: Ankara Yazlık, Araba Kredisi..."
+                        />
+                     </div>
                      <h3 className="text-lg font-bold text-slate-800 text-center">Ne kredisi planlıyorsunuz?</h3>
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {['Konut Kredisi', 'Taşıt (Oto) Kredisi', 'İhtiyaç / Destek Kredisi'].map(type => (
@@ -1321,7 +1413,7 @@ export default function App() {
             >
               <UserPlus size={16} /> <span className="hidden sm:inline">Ortak Davet Et</span>
             </button>
-            <button onClick={() => { setAppRoute('lobby'); setCurrentPlanId(''); localStorage.removeItem('lastPlanId'); }} className="text-slate-400 hover:text-red-500 transition-colors" title="Plandan Çık (Lobiye Dön)">
+            <button onClick={() => { setAppRoute('lobby'); setCurrentPlanId(''); }} className="text-slate-400 hover:text-red-500 transition-colors" title="Plandan Çık (Lobiye Dön)">
               <LogIn size={20} className="rotate-180" />
             </button>
           </div>
@@ -1410,18 +1502,24 @@ export default function App() {
       <div className="max-w-7xl mx-auto px-4 md:px-8 mt-6">
         
         {/* Sekmeler */}
-        <div className="flex gap-4 mb-6 border-b border-slate-200">
+        <div className="flex gap-2 sm:gap-4 mb-6 border-b border-slate-200 overflow-x-auto pb-1">
            <button 
              onClick={() => setDashboardTab('overview')} 
-             className={`pb-3 font-bold text-sm px-2 transition-colors ${dashboardTab === 'overview' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-indigo-400'}`}
+             className={`pb-3 font-bold text-sm px-2 sm:px-4 transition-colors whitespace-nowrap ${dashboardTab === 'overview' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-indigo-400'}`}
            >
              Genel Durum & Plan
            </button>
            <button 
              onClick={() => setDashboardTab('payments')} 
-             className={`pb-3 font-bold text-sm px-2 transition-colors flex items-center gap-2 ${dashboardTab === 'payments' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-indigo-400'}`}
+             className={`pb-3 font-bold text-sm px-2 sm:px-4 transition-colors flex items-center gap-2 whitespace-nowrap ${dashboardTab === 'payments' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-indigo-400'}`}
            >
              Ödemelerim & Yatırım Analizi
+           </button>
+           <button 
+             onClick={() => setDashboardTab('valuation')} 
+             className={`pb-3 font-bold text-sm px-2 sm:px-4 transition-colors flex items-center gap-2 whitespace-nowrap ${dashboardTab === 'valuation' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-indigo-400'}`}
+           >
+             <Scale size={16}/> Ayrılık & Değerleme
            </button>
         </div>
 
@@ -2177,6 +2275,58 @@ export default function App() {
                 </div>
              </div>
           </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* SEKMELER : AYRILIK & DEĞERLEME (VALUATION) */}
+        {/* ========================================================================= */}
+        {dashboardTab === 'valuation' && (
+           <div className="space-y-6 animate-in fade-in duration-300">
+              
+              <div className="bg-white p-5 md:p-8 rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
+                 <div className="absolute -top-10 -right-10 opacity-5"><Scale size={200}/></div>
+                 <div className="max-w-3xl relative z-10">
+                    <h2 className="text-2xl font-bold text-slate-800 mb-2">Ortaklıktan Ayrılma ve Değerleme Panosu</h2>
+                    <p className="text-slate-500 leading-relaxed mb-6">
+                       Eğer ortaklardan biri ayrılmak isterse, bugüne kadar ödediği tutarın karşılığını veya evin bugünkü olması gereken değerini farklı ekonomik göstergelere göre hesaplayıp adil bir hisse devir (Ayrılma) bedeli bulabilirsiniz.
+                    </p>
+                    
+                    <div className="flex items-center gap-3">
+                       <span className="font-bold text-slate-700">Hangi Ortağın Ayrılma Senaryosu:</span>
+                       <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                          <button onClick={() => setViewingPartnerId(myPartner.id)} className={`px-4 py-1.5 rounded-md font-bold text-sm transition-all ${viewedPartner.id === myPartner.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                             {myPartner.name}
+                          </button>
+                          <button onClick={() => setViewingPartnerId(otherPartner.id)} className={`px-4 py-1.5 rounded-md font-bold text-sm transition-all ${viewedPartner.id === otherPartner.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                             {otherPartner.name}
+                          </button>
+                       </div>
+                    </div>
+                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                 
+                 {/* Sabit Kartlar (Yatırım Sekmesinden Çekilen Verilerle) */}
+                 {renderCurrencyValuationCard("Altın", "gr", totalInvValue.gold, activeRates.dp?.gold, currentRates.gold, "text-amber-500")}
+                 {renderCurrencyValuationCard("Dolar", "$", totalInvValue.usd, activeRates.dp?.usd, currentRates.usd, "text-green-500")}
+                 {renderCurrencyValuationCard("Euro", "€", totalInvValue.eur, activeRates.dp?.eur, currentRates.eur, "text-blue-500")}
+
+                 {/* Özel (Custom) Skala Kartları */}
+                 {valuationMetrics.map(metric => renderCustomValuationCard(metric))}
+
+                 {/* Yeni Skala Ekleme Butonu */}
+                 <button 
+                    onClick={addValuationMetric}
+                    className="bg-indigo-50/50 border-2 border-dashed border-indigo-200 rounded-2xl flex flex-col items-center justify-center p-8 text-indigo-500 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600 transition-colors min-h-[250px]"
+                 >
+                    <Plus size={32} className="mb-2"/>
+                    <span className="font-bold">Yeni Finansal Skala Ekle</span>
+                    <span className="text-xs mt-1 text-center opacity-80">(TÜFE, Endeks, Kur vs.)</span>
+                 </button>
+
+              </div>
+           </div>
         )}
 
       </div>
