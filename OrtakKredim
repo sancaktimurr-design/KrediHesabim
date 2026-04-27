@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Calculator, Home, PieChart, Users, Receipt, Plus, Trash2, Info, UserPlus, LogIn, Mail, Link as LinkIcon, CalendarClock, Lock, User, Table, X, ArrowRight, ArrowLeft, CheckCircle2, Unlock, CheckSquare, Square, Landmark, Coins, TrendingUp, Share2, DownloadCloud, LineChart, Target } from 'lucide-react';
+import { Calculator, Home, PieChart, Users, Receipt, Plus, Trash2, Info, UserPlus, LogIn, Mail, Link as LinkIcon, CalendarClock, Lock, User, Table, X, ArrowRight, ArrowLeft, CheckCircle2, Unlock, CheckSquare, Square, Landmark, Coins, TrendingUp, Share2, DownloadCloud, LineChart, Target, Zap, UploadCloud, Loader2 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
@@ -44,7 +44,7 @@ export default function App() {
   const [appRoute, setAppRoute] = useState('login'); 
   const [currentUser, setCurrentUser] = useState(null);
   const [dashboardTab, setDashboardTab] = useState('overview'); 
-  const [viewingPartnerId, setViewingPartnerId] = useState(null); // Yatırım panelinde kimi görüyoruz?
+  const [viewingPartnerId, setViewingPartnerId] = useState(null); 
   
   const [currentPlanId, setCurrentPlanId] = useState('');
   const [joinCode, setJoinCode] = useState('');
@@ -64,11 +64,13 @@ export default function App() {
   const [wizardStep, setWizardStep] = useState(1);
   const [loanType, setLoanType] = useState('Konut Kredisi');
   const [partnerCount, setPartnerCount] = useState(2);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiError, setAiError] = useState('');
 
   // --- HESAPLAMA DURUMU (STATE) ---
   const [property, setProperty] = useState({
     price: 4000000,
-    currentValue: 4000000, // Evin bugünkü güncel değeri eklendi
+    currentValue: 4000000,
     interestRate: 2.89,
     term: 120,
     startDate: new Date().toISOString().slice(0,7),
@@ -105,7 +107,14 @@ export default function App() {
           email: user.email, 
           uid: user.uid 
         });
-        setAppRoute(prev => (prev === 'login' || prev === 'register' ? 'lobby' : prev));
+        
+        const savedPlan = localStorage.getItem('lastPlanId');
+        if (savedPlan) {
+           setCurrentPlanId(savedPlan);
+           setAppRoute('dashboard');
+        } else {
+           setAppRoute(prev => (prev === 'login' || prev === 'register' ? 'lobby' : prev));
+        }
       } else {
         setCurrentUser(null);
         setAppRoute(prev => (prev === 'dashboard' || prev === 'lobby' || prev === 'wizard' ? 'login' : prev));
@@ -201,7 +210,6 @@ export default function App() {
     if (!currentUser) return;
     const newCode = generateCode();
     
-    // Kurulum bittiğinde current value'yu price'a eşitleyelim
     const finalProperty = { ...property, currentValue: property.price };
     const initialData = { property: finalProperty, expenses, partners, paidMonths: [], investmentData, currentRates, createdAt: new Date().toISOString() };
     
@@ -209,6 +217,7 @@ export default function App() {
       const docRef = doc(db, 'plans', newCode);
       await setDoc(docRef, initialData);
       setCurrentPlanId(newCode);
+      localStorage.setItem('lastPlanId', newCode); 
       setIsUnlocked(false); 
       setDashboardTab('overview');
       setAppRoute('dashboard');
@@ -231,7 +240,6 @@ export default function App() {
         const data = docSnap.data();
         const updatedPartners = [...data.partners];
         
-        // Eğer 2. ortağın UID'si boşsa ve katılan kişi 1. ortak değilse, onu 2. ortak yap
         if (!updatedPartners[1].uid && updatedPartners[0].uid !== currentUser.uid) {
            updatedPartners[1].uid = currentUser.uid;
            updatedPartners[1].name = currentUser.name;
@@ -240,6 +248,7 @@ export default function App() {
         }
 
         setCurrentPlanId(formattedCode);
+        localStorage.setItem('lastPlanId', formattedCode);
         setIsUnlocked(false);
         setDashboardTab('overview');
         setAppRoute('dashboard');
@@ -250,6 +259,96 @@ export default function App() {
       setPlanError('Sistemsel bir hata oluştu.');
     }
   };
+
+  // --- GEMINI AI (YAPAY ZEKA İLE OCR OKUMA) ---
+  const analyzeImageWithGemini = async (base64Data, mimeType) => {
+    const apiKey = ""; // Çevre değişkeni tarafından sağlanacak
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+    const payload = {
+      contents: [{
+        role: "user",
+        parts: [
+          { text: "Sen finansal verileri anlayan bir uzmansın. Sana gönderdiğim banka ödeme planından (veya evraklardan) şu değerleri bularak bana sadece formatlanmış JSON olarak dön: Toplam Kredi/Ev Tutarı (price), Kredi Aylık Faiz Oranı Yüzdesi (interestRate, örn: 2.89), Vade Süresi (term, ay cinsinden, örn 120), ve İlk Taksit Tarihi (startDate, 'YYYY-MM' formatında)." },
+          { inlineData: { mimeType: mimeType, data: base64Data } }
+        ]
+      }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            price: { type: "NUMBER", description: "Toplam kredi veya satın alma tutarı" },
+            interestRate: { type: "NUMBER", description: "Aylık faiz oranı (virgüllü ise noktaya çevir)" },
+            term: { type: "INTEGER", description: "Vade süresi (Ay)" },
+            startDate: { type: "STRING", description: "İlk ödeme tarihi YYYY-MM" }
+          }
+        }
+      }
+    };
+
+    let attempt = 0;
+    const delays = [1000, 2000, 4000, 8000, 16000];
+
+    while (attempt < 6) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (result.error) throw new Error(result.error.message);
+        
+        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error("API okunamayan veri döndürdü.");
+        
+        return JSON.parse(text);
+      } catch (error) {
+        if (attempt === 5) throw error;
+        await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+        attempt++;
+      }
+    }
+  };
+
+  const handleFileUploadAI = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsAnalyzing(true);
+    setAiError('');
+
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async () => {
+        const base64Data = reader.result.split(',')[1];
+        const mimeType = file.type;
+
+        try {
+           const data = await analyzeImageWithGemini(base64Data, mimeType);
+           if(data) {
+              setProperty(prev => ({
+                 ...prev,
+                 price: data.price || prev.price,
+                 interestRate: data.interestRate || prev.interestRate,
+                 term: data.term || prev.term,
+                 startDate: data.startDate || prev.startDate
+              }));
+           }
+        } catch(err) {
+           setAiError('Belge okunamadı veya bulanık. Lütfen değerleri manuel girin.');
+        } finally {
+           setIsAnalyzing(false);
+        }
+      };
+    } catch (error) {
+       setAiError('Dosya işlenirken bir hata oluştu.');
+       setIsAnalyzing(false);
+    }
+  };
+
 
   // --- VERİ GÜNCELLEME YARDIMCILARI ---
   const updateProperty = (field, value) => {
@@ -330,10 +429,9 @@ export default function App() {
     return date.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
   };
 
-  // --- YATIRIM KUR GÜNCELLEME İŞLEMLERİ (DERİN KOPYALAMA İLE BUG DÜZELTİLDİ) ---
   const updateInvestmentRate = (partnerId, category, field, value) => {
     setInvestmentData(prev => {
-      const updated = JSON.parse(JSON.stringify(prev)); // React state derin kopyalama
+      const updated = JSON.parse(JSON.stringify(prev));
       if (!updated[partnerId]) updated[partnerId] = { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates };
       updated[partnerId].rates[category][field] = value;
       syncToFirestore({ investmentData: updated });
@@ -343,16 +441,13 @@ export default function App() {
 
   const updateInvestmentMonthRate = (partnerId, month, field, value) => {
     setInvestmentData(prev => {
-      const strMonth = String(month); // Aylar obje key'i olarak string olmalı
+      const strMonth = String(month);
       const updated = JSON.parse(JSON.stringify(prev));
-      
       if (!updated[partnerId]) updated[partnerId] = { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates };
       if (!updated[partnerId].rates.months[strMonth]) {
          updated[partnerId].rates.months[strMonth] = {usd:'', eur:'', gold:''};
       }
-      
       updated[partnerId].rates.months[strMonth][field] = value;
-      
       syncToFirestore({ investmentData: updated });
       return updated;
     });
@@ -386,7 +481,6 @@ export default function App() {
     syncToFirestore({ investmentData: updated });
   };
 
-  // --- AUTH İŞLEMLERİ ---
   const handleEmailLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -433,6 +527,7 @@ export default function App() {
     try {
       await signOut(auth);
       setCurrentPlanId(''); 
+      localStorage.removeItem('lastPlanId'); 
     } catch (error) {
       console.error("Çıkış yapılırken hata:", error);
     }
@@ -457,7 +552,6 @@ export default function App() {
     let totalLoanNeeded = 0;
     let totalHouseDownPayment = 0;
 
-    // AŞAMA 1: Kredi Oranlarını Bul
     const partnerBaseCalculations = partners.map(p => {
       const shareMultiplier = (Number(p.targetShare) || 0) / 100;
       const targetValue = totalTargetBaseValue * shareMultiplier;
@@ -531,9 +625,14 @@ export default function App() {
     const bankRemainingPrincipal = totalLoanNeeded - principalPaidTotal;
     const bankOwnershipPercent = totalTargetBaseValue > 0 ? (bankRemainingPrincipal / totalTargetBaseValue) * 100 : 0;
 
+    // Erken Kapama (Payoff) Hesaplaması: Kalan Ana Para + %2 Yasal Erken Kapama Cezası
+    const earlyPayoffPenalty = bankRemainingPrincipal * 0.02;
+    const totalEarlyPayoffAmount = bankRemainingPrincipal + earlyPayoffPenalty;
+
     const partnerResults = partnerBaseCalculations.map(p => {
       const loanShareRatio = totalLoanNeeded > 0 ? p.requiredLoan / totalLoanNeeded : 0;
-      const remainingLoanDebt = bankRemainingPrincipal * loanShareRatio; // Kalan kredi borcu
+      const remainingLoanDebt = bankRemainingPrincipal * loanShareRatio; 
+      const earlyPayoffShare = totalEarlyPayoffAmount * loanShareRatio; // Ortağa düşen erken kapama tutarı
       
       let outOfPocketExcludedExpenses = 0;
       let automatedExpenses = 0;
@@ -560,7 +659,6 @@ export default function App() {
       const interestContribution = totalInterest * loanShareRatio;
       const totalLoanDebtContribution = principalContribution + interestContribution;
 
-      // Bugüne kadar cepten çıkan "gerçekleşmiş" ödemeler
       let totalPaidInstallments = 0;
       amortizationSchedule.forEach(row => {
         if (paidMonths.includes(row.month)) {
@@ -581,6 +679,7 @@ export default function App() {
         ...p,
         loanShareRatio,
         remainingLoanDebt,
+        earlyPayoffShare,
         outOfPocketExcludedExpenses,
         totalCalculatedExpenses,
         principalContribution,
@@ -607,6 +706,8 @@ export default function App() {
       passedMonths,
       bankOwnershipPercent,
       bankRemainingPrincipal,
+      earlyPayoffPenalty,
+      totalEarlyPayoffAmount,
       amortizationSchedule,
       totalTargetBaseValue
     };
@@ -620,21 +721,16 @@ export default function App() {
     return new Intl.NumberFormat('tr-TR', { style: 'decimal', maximumFractionDigits: 2 }).format(amount) + ' ' + currencySymbol;
   };
 
-  // --- KİMLİK (PARTNER) TESPİTİ VE YATIRIM EKRANI GEÇİŞİ ---
   const myPartner = currentUser ? (partners.find(p => p.uid === currentUser.uid) || partners[0]) : partners[0];
   const otherPartner = partners.find(p => p.id !== myPartner.id) || partners[1];
   
-  // Eğer yatırm ekranında özel olarak biri seçilmediyse, varsayılan olarak kendimi göster
   const activeViewPartnerId = viewingPartnerId || myPartner.id;
   const viewedPartner = partners.find(p => p.id === activeViewPartnerId);
   const viewedResults = calculations.partnerResults.find(p => p.id === viewedPartner.id) || calculations.partnerResults[0];
 
-  // --- YATIRIM HESAPLAMALARI ---
   const myInvData = investmentData[myPartner.id] || { rates: defaultInvRates, usePartnerRates: false };
   const otherInvData = investmentData[otherPartner.id] || { rates: defaultInvRates, isShared: false };
   
-  // ÖNEMLİ: Hangi sekmeye bakarsak bakalım "Kur Oranları" her zaman benim yazdığım kurlardır.
-  // (Sadece ben "Eşitle" dediysem ortağımın kurlarını baz alırım).
   const activeRates = myInvData.usePartnerRates ? otherInvData.rates : myInvData.rates;
   
   const calculateEquivalent = (tryAmount, rate) => {
@@ -643,21 +739,17 @@ export default function App() {
      return tryAmount / r;
   };
 
-  // Aylık kurları anında yansıtabilmek için `viewedResults` ve `paidMonths` a bağlı useMemo
   const totalInvValue = useMemo(() => {
      let usd = 0, eur = 0, gold = 0;
      
-     // 1. Peşinat
      usd += calculateEquivalent(viewedResults.houseDp, activeRates.dp?.usd);
      eur += calculateEquivalent(viewedResults.houseDp, activeRates.dp?.eur);
      gold += calculateEquivalent(viewedResults.houseDp, activeRates.dp?.gold);
 
-     // 2. Masraflar
      usd += calculateEquivalent(viewedResults.totalCalculatedExpenses, activeRates.exp?.usd);
      eur += calculateEquivalent(viewedResults.totalCalculatedExpenses, activeRates.exp?.eur);
      gold += calculateEquivalent(viewedResults.totalCalculatedExpenses, activeRates.exp?.gold);
 
-     // 3. Taksitler
      paidMonths.forEach(m => {
         const amt = viewedResults.monthlyContribution;
         const mRates = activeRates.months?.[String(m)] || {};
@@ -669,14 +761,9 @@ export default function App() {
      return { usd, eur, gold };
   }, [activeRates, viewedResults, paidMonths]);
 
-
-  // Kâr/Zarar Hesaplaması (Doğru Finansal Model)
-  const currentHouseValue = property.currentValue || property.price; // Kullanıcı değer girdiyse onu, girmediyse alış fiyatını baz al
-  const grossHouseShareValue = currentHouseValue * (viewedResults.targetShare / 100); // Evin hedef payı üzerinden brüt değeri
-  const netHouseWealth = grossHouseShareValue - viewedResults.remainingLoanDebt; // Brüt Değer eksi Bankaya Kalan Borç
-
-
-  // --- GÖRÜNÜMLER (VIEWS) ---
+  const currentHouseValue = property.currentValue || property.price; 
+  const grossHouseShareValue = currentHouseValue * (viewedResults.targetShare / 100); 
+  const netHouseWealth = grossHouseShareValue - viewedResults.remainingLoanDebt; 
 
   if (appRoute === 'login' || appRoute === 'register') {
     return (
@@ -949,20 +1036,78 @@ export default function App() {
                   </div>
                )}
 
-               {/* ADIM 3: EVİN FİYATI & PEŞİNATLAR */}
+               {/* ADIM 3: EVİN FİYATI, KREDİ BİLGİLERİ & PEŞİNATLAR */}
                {wizardStep === 3 && (
                   <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                     <h3 className="text-lg font-bold text-slate-800 text-center">Ev Değeri ve Ana Peşinatlar</h3>
                      
-                     <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">Evin Satın Alma Tutarı (TL)</label>
+                     <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5 flex flex-col items-center justify-center text-center">
+                        <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-3">
+                           {isAnalyzing ? <Loader2 className="animate-spin" size={24} /> : <UploadCloud size={24} />}
+                        </div>
+                        <h4 className="font-bold text-indigo-900 mb-1">Yapay Zeka ile Otomatik Doldur</h4>
+                        <p className="text-xs text-indigo-700 mb-4 max-w-md">Bankadan aldığınız ödeme planının fotoğrafını (veya PDF'ini) yükleyin. Sistem; tutarı, faizi ve vadeyi sizin için otomatik okusun.</p>
+                        
                         <input 
-                           type="number" 
-                           value={property.price || ''}
-                           onChange={(e) => setProperty({...property, price: Number(e.target.value)})}
-                           className="w-full p-4 text-xl rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-800 bg-white"
-                           placeholder="Örn: 4000000"
+                           type="file" 
+                           accept="image/*,application/pdf" 
+                           id="ai-upload" 
+                           className="hidden" 
+                           onChange={handleFileUploadAI} 
                         />
+                        <label 
+                           htmlFor="ai-upload" 
+                           className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all cursor-pointer shadow-sm ${isAnalyzing ? 'bg-indigo-300 text-indigo-50 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                        >
+                           {isAnalyzing ? 'Belge İnceleniyor...' : 'Ödeme Planı Yükle'}
+                        </label>
+                        {aiError && <p className="text-xs text-red-500 font-bold mt-3">{aiError}</p>}
+                     </div>
+
+                     <h3 className="text-lg font-bold text-slate-800 text-center">Ev Değeri, Kredi Bilgileri ve Peşinatlar</h3>
+                     
+                     <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-4">
+                        <h4 className="font-semibold text-slate-700 mb-2 border-b pb-2">Temel Kredi ve Fiyat Bilgileri</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                           <div className="md:col-span-2">
+                              <label className="block text-sm font-semibold text-slate-700 mb-1">Evin Satın Alma Tutarı (TL)</label>
+                              <input 
+                                 type="number" 
+                                 value={property.price || ''}
+                                 onChange={(e) => setProperty({...property, price: Number(e.target.value)})}
+                                 className="w-full p-3 text-lg rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-800 bg-white"
+                                 placeholder="Örn: 4000000"
+                              />
+                           </div>
+                           <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1">Kredi Faiz Oranı (%)</label>
+                              <input 
+                                 type="number" step="0.01"
+                                 value={property.interestRate || ''}
+                                 onChange={(e) => setProperty({...property, interestRate: Number(e.target.value)})}
+                                 className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium"
+                                 placeholder="Örn: 2.89"
+                              />
+                           </div>
+                           <div>
+                              <label className="block text-sm font-semibold text-slate-700 mb-1">Vade Süresi (Ay)</label>
+                              <input 
+                                 type="number" 
+                                 value={property.term || ''}
+                                 onChange={(e) => setProperty({...property, term: Number(e.target.value)})}
+                                 className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium"
+                                 placeholder="Örn: 120"
+                              />
+                           </div>
+                           <div className="md:col-span-2">
+                              <label className="block text-sm font-semibold text-slate-700 mb-1">İlk Taksit (Kredi Başlangıç) Tarihi</label>
+                              <input 
+                                 type="month" 
+                                 value={property.startDate || ''}
+                                 onChange={(e) => setProperty({...property, startDate: e.target.value})}
+                                 className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium"
+                              />
+                           </div>
+                        </div>
                      </div>
 
                      <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-4">
@@ -1176,7 +1321,7 @@ export default function App() {
             >
               <UserPlus size={16} /> <span className="hidden sm:inline">Ortak Davet Et</span>
             </button>
-            <button onClick={() => { setAppRoute('lobby'); setCurrentPlanId(''); }} className="text-slate-400 hover:text-red-500 transition-colors" title="Plandan Çık (Lobiye Dön)">
+            <button onClick={() => { setAppRoute('lobby'); setCurrentPlanId(''); localStorage.removeItem('lastPlanId'); }} className="text-slate-400 hover:text-red-500 transition-colors" title="Plandan Çık (Lobiye Dön)">
               <LogIn size={20} className="rotate-180" />
             </button>
           </div>
@@ -1573,7 +1718,7 @@ export default function App() {
                        </div>
                      )
                   })}
-                  <div className="flex justify-between items-center text-sm pt-1">
+                  <div className="flex justify-between items-center text-sm pt-1 border-b border-slate-800 pb-2">
                      <span className="font-medium text-slate-400 flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-slate-600"></div>
                         Banka (Kalan Ana Para)
@@ -1666,6 +1811,27 @@ export default function App() {
                    <div className="flex justify-between text-sm text-slate-600">
                      <span>Banka Toplam Geri Ödeme (Ana Para + Faiz):</span>
                      <span className="font-bold text-red-600">{formatMoney(calculations.totalLoanNeeded + calculations.totalInterest)}</span>
+                   </div>
+                </div>
+
+                {/* YENİ: KREDİ KAPAMA TUTARI */}
+                <div className="mt-6 p-5 bg-emerald-50 rounded-2xl border border-emerald-200">
+                   <div className="flex justify-between items-center mb-2">
+                      <span className="font-bold text-emerald-900 flex items-center gap-2"><Zap size={18}/> Güncel Erken Kapama Tutarı</span>
+                      <span className="text-2xl font-black text-emerald-700">{formatMoney(calculations.totalEarlyPayoffAmount)}</span>
+                   </div>
+                   <p className="text-[11px] text-emerald-600 mb-4 pb-3 border-b border-emerald-200/60 leading-relaxed">
+                      Krediyi <strong>bugün</strong> kapatmak isterseniz kalan ana para ({formatMoney(calculations.bankRemainingPrincipal)}) üzerine yasal maksimum olan %2 oranında erken kapama cezası ({formatMoney(calculations.earlyPayoffPenalty)}) eklenerek hesaplanmıştır. Gelecek ayların faizi silinir.
+                   </p>
+                   
+                   <div className="space-y-2">
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-emerald-800 mb-2">Kişilere Düşen Kapama Ödemesi</span>
+                      {calculations.partnerResults.map(p => (
+                         <div key={p.id} className="flex justify-between items-center text-sm bg-white/60 p-2 rounded-lg border border-emerald-100">
+                            <span className="text-emerald-900 font-medium">{p.name}</span>
+                            <span className="font-bold text-emerald-700">{formatMoney(p.earlyPayoffShare)}</span>
+                         </div>
+                      ))}
                    </div>
                 </div>
               </section>
