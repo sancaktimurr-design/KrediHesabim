@@ -111,6 +111,7 @@ export default function App() {
   });
   const [customValuations, setCustomValuations] = useState([]);
   const [showValuationResults, setShowValuationResults] = useState(false);
+  const [compensateExpenses, setCompensateExpenses] = useState(false); // Yeni: Tapu masraflarını iade et butonu
 
   // --- FIREBASE AUTH DİNLEYİCİSİ ---
   useEffect(() => {
@@ -777,7 +778,7 @@ export default function App() {
         remainingLoanDebt,
         earlyPayoffShare,
         outOfPocketExcludedExpenses,
-        totalCalculatedExpenses,
+        totalCalculatedExpenses, // Tapu, komisyon vb. masrafların (kişiye düşen) toplamı
         principalContribution,
         interestContribution,
         totalLoanDebtContribution,
@@ -2366,15 +2367,25 @@ export default function App() {
                        Aşağıdaki tabloya evin/kredinin alındığı günkü göstergeleri ve bugünkü güncel değerleri girerek "Hesapla" tuşuna basın. Sistem size her bir endekse göre olası ayrılık bedellerini kıyaslayarak sunacaktır.
                     </p>
                     
-                    <div className="flex items-center gap-3">
-                       <span className="font-bold text-slate-700">Hangi Ortağın Ayrılma Senaryosu:</span>
-                       <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                          <button onClick={() => setViewingPartnerId(myPartner.id)} className={`px-4 py-1.5 rounded-md font-bold text-sm transition-all ${viewedPartner.id === myPartner.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                             {myPartner.name}
-                          </button>
-                          <button onClick={() => setViewingPartnerId(otherPartner.id)} className={`px-4 py-1.5 rounded-md font-bold text-sm transition-all ${viewedPartner.id === otherPartner.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                             {otherPartner.name}
-                          </button>
+                    <div className="flex flex-col md:flex-row items-start md:items-center gap-6 mt-4">
+                       <div className="flex items-center gap-3">
+                          <span className="font-bold text-slate-700">Hangi Ortak Ayrılıyor:</span>
+                          <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                             <button onClick={() => setViewingPartnerId(myPartner.id)} className={`px-4 py-1.5 rounded-md font-bold text-sm transition-all ${viewedPartner.id === myPartner.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                {myPartner.name}
+                             </button>
+                             <button onClick={() => setViewingPartnerId(otherPartner.id)} className={`px-4 py-1.5 rounded-md font-bold text-sm transition-all ${viewedPartner.id === otherPartner.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                {otherPartner.name}
+                             </button>
+                          </div>
+                       </div>
+                       
+                       <div className="flex items-center gap-3 bg-amber-50 p-2 rounded-xl border border-amber-100">
+                          <span className="font-bold text-amber-800 text-sm">Masraf ve Vergi Durumu:</span>
+                          <label className="flex items-center gap-2 cursor-pointer bg-white p-1.5 rounded-lg border border-amber-200 shadow-sm">
+                             <input type="checkbox" checked={compensateExpenses} onChange={e => setCompensateExpenses(e.target.checked)} className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500" />
+                             <span className="text-xs font-bold text-amber-700">Batık Masrafları (Tapu vb.) İade Et</span>
+                          </label>
                        </div>
                     </div>
                  </div>
@@ -2424,13 +2435,14 @@ export default function App() {
                  </div>
               </div>
 
-              {/* SONUÇLAR VE KARTLAR */}
+              {/* SONUÇLAR VE KARTLAR (YENİ TASFİYE MODELİ) */}
               {showValuationResults && (
                  <div className="space-y-6 animate-in slide-in-from-bottom-8 duration-500">
                     <div className="bg-emerald-50 text-emerald-800 p-5 rounded-2xl border border-emerald-200 flex items-start sm:items-center gap-4">
                        <div className="bg-emerald-100 p-2 rounded-full shrink-0"><Info size={24} className="text-emerald-600"/></div>
                        <div className="text-sm leading-relaxed">
-                          Aşağıdaki kartlarda <strong>{viewedPartner.name}</strong> adlı ortağın ayrılık bedelleri hesaplanmıştır. Evin orijinal değeri girdiğiniz skalaya göre oranlanarak büyütülmüş, ardından bankaya kalan güncel borç düşülüp ortağın %{viewedResults.targetShare} payı netleştirilmiştir.
+                          Aşağıdaki değerleme kartları <strong>"Gerçek Tasfiye (Evi Satıp Krediyi Kapatma)"</strong> simülasyonuna göre çalışır. Evin güncel değeri hesaplanır, ortağın brüt payı ayrılır ve bankaya olan <strong>Erken Kapama Borcu (Cezalı)</strong> bu paydan düşülerek net ayrılma bedeli bulunur.
+                          {compensateExpenses && <span className="font-bold text-amber-700"> (Geçmiş tapu/masraf zararları iade olarak eklenmiştir).</span>}
                        </div>
                     </div>
                     
@@ -2438,31 +2450,56 @@ export default function App() {
                        {Object.entries(valuationScenarios).map(([key, data]) => {
                           if(!data.initial || !data.current) return null;
                           const mult = Number(data.current) / Number(data.initial);
-                          const estHouseVal = property.price * mult; // Evin rayiç/büyümüş değeri
-                          const estBuyoutVal = (estHouseVal * (viewedResults.targetShare / 100)) - viewedResults.remainingLoanDebt;
-                          const indexedPaid = viewedResults.totalPaidOutHistory * mult; // Bugüne kadar ödediğinin enflasyonlu değeri
+                          const estHouseVal = property.price * mult; 
+                          const grossShare = estHouseVal * (viewedResults.targetShare / 100); // Ev satılsa brüt payı
+                          const debtToSubtract = viewedResults.earlyPayoffShare; // Banka kapama tutarı
+                          const baseEquity = grossShare - debtToSubtract; // Net Pay
+                          
+                          const indexedExpenses = viewedResults.totalCalculatedExpenses * mult;
+                          const estBuyoutVal = baseEquity + (compensateExpenses ? indexedExpenses : 0);
+                          const indexedPaid = viewedResults.totalPaidOutHistory * mult; 
                           
                           return (
-                             <div key={key} className="bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-300 transition-all hover:shadow-md">
+                             <div key={key} className="bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-300 transition-all hover:shadow-md flex flex-col h-full">
                                 <h4 className="text-lg font-black text-slate-800 mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
                                    {data.name}
                                    <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-1 rounded">x{mult.toFixed(2)}</span>
                                 </h4>
-                                <div className="space-y-4">
-                                   <div className="flex justify-between items-center text-sm">
-                                      <span className="text-slate-500">Bugüne Kadar Verdiklerinin Karşılığı:</span>
-                                      <span className="font-bold text-slate-700">{formatMoney(indexedPaid)}</span>
+                                
+                                <div className="space-y-3 flex-1">
+                                   <div className="flex justify-between items-center text-[13px] border-b border-slate-50 pb-2">
+                                      <span className="text-slate-500">Ödediği Paranın Endeksli Karşılığı:</span>
+                                      <span className="font-bold text-slate-700" title="Verdiği peşinat, taksit ve masrafların endekslenmiş büyüklüğü">{formatMoney(indexedPaid)}</span>
                                    </div>
-                                   <div className="flex justify-between items-center text-sm">
-                                      <span className="text-slate-500">Evin Ulaşmış Olması Gereken Değer:</span>
+                                   
+                                   <div className="flex justify-between items-center text-[13px] pt-1">
+                                      <span className="text-slate-500">Evin Tahmini Satış Değeri:</span>
                                       <span className="font-bold text-slate-700">{formatMoney(estHouseVal)}</span>
                                    </div>
-                                   <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mt-4 relative overflow-hidden">
-                                      <div className="absolute right-0 bottom-0 opacity-10 -mr-2 -mb-2"><Scale size={60}/></div>
-                                      <span className="block text-[11px] font-black uppercase text-indigo-600 mb-1 relative z-10">Adil Ayrılma / Devir Bedeli</span>
-                                      <div className={`text-2xl font-black relative z-10 ${estBuyoutVal > 0 ? 'text-indigo-900' : 'text-slate-400'}`}>
-                                         {estBuyoutVal > 0 ? formatMoney(estBuyoutVal) : 'Borçlu Durumda'}
-                                      </div>
+                                   
+                                   <div className="flex justify-between items-center text-sm font-semibold text-indigo-700">
+                                      <span>Satıştan Düşen Brüt Pay (%{viewedResults.targetShare}):</span>
+                                      <span>{formatMoney(grossShare)}</span>
+                                   </div>
+                                   
+                                   <div className="flex justify-between items-center text-sm font-semibold text-red-500 border-b border-slate-100 pb-3">
+                                      <span>- Kredi Erken Kapama Borcu:</span>
+                                      <span>-{formatMoney(debtToSubtract)}</span>
+                                   </div>
+
+                                   {compensateExpenses && (
+                                     <div className="flex justify-between items-center text-sm text-amber-600 font-semibold pt-1">
+                                        <span>+ Endeksli Masraf/Vergi İadesi:</span>
+                                        <span>{formatMoney(indexedExpenses)}</span>
+                                     </div>
+                                   )}
+                                </div>
+
+                                <div className={`p-4 rounded-xl border mt-5 relative overflow-hidden shrink-0 ${compensateExpenses ? 'bg-amber-50/50 border-amber-200' : 'bg-indigo-50/50 border-indigo-100'}`}>
+                                   <div className="absolute right-0 bottom-0 opacity-10 -mr-2 -mb-2"><Scale size={60}/></div>
+                                   <span className={`block text-[11px] font-black uppercase mb-1 relative z-10 ${compensateExpenses ? 'text-amber-700' : 'text-indigo-600'}`}>Net Ortaklıktan Ayrılma Bedeli</span>
+                                   <div className={`text-2xl font-black relative z-10 ${estBuyoutVal > 0 ? (compensateExpenses ? 'text-amber-900' : 'text-indigo-900') : 'text-slate-400'}`}>
+                                      {estBuyoutVal > 0 ? formatMoney(estBuyoutVal) : 'Borçlu Durumda'}
                                    </div>
                                 </div>
                              </div>
@@ -2473,30 +2510,55 @@ export default function App() {
                           if(!custom.initial || !custom.current) return null;
                           const mult = Number(custom.current) / Number(custom.initial);
                           const estHouseVal = property.price * mult;
-                          const estBuyoutVal = (estHouseVal * (viewedResults.targetShare / 100)) - viewedResults.remainingLoanDebt;
+                          const grossShare = estHouseVal * (viewedResults.targetShare / 100); 
+                          const debtToSubtract = viewedResults.earlyPayoffShare; 
+                          const baseEquity = grossShare - debtToSubtract; 
+                          
+                          const indexedExpenses = viewedResults.totalCalculatedExpenses * mult;
+                          const estBuyoutVal = baseEquity + (compensateExpenses ? indexedExpenses : 0);
                           const indexedPaid = viewedResults.totalPaidOutHistory * mult;
                           
                           return (
-                             <div key={custom.id} className="bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-300 transition-all hover:shadow-md">
+                             <div key={custom.id} className="bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-300 transition-all hover:shadow-md flex flex-col h-full">
                                 <h4 className="text-lg font-black text-slate-800 mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
                                    {custom.name}
                                    <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-1 rounded">x{mult.toFixed(2)}</span>
                                 </h4>
-                                <div className="space-y-4">
-                                   <div className="flex justify-between items-center text-sm">
-                                      <span className="text-slate-500">Bugüne Kadar Verdiklerinin Karşılığı:</span>
-                                      <span className="font-bold text-slate-700">{formatMoney(indexedPaid)}</span>
+                                
+                                <div className="space-y-3 flex-1">
+                                   <div className="flex justify-between items-center text-[13px] border-b border-slate-50 pb-2">
+                                      <span className="text-slate-500">Ödediği Paranın Endeksli Karşılığı:</span>
+                                      <span className="font-bold text-slate-700" title="Verdiği peşinat, taksit ve masrafların endekslenmiş büyüklüğü">{formatMoney(indexedPaid)}</span>
                                    </div>
-                                   <div className="flex justify-between items-center text-sm">
-                                      <span className="text-slate-500">Evin Ulaşmış Olması Gereken Değer:</span>
+                                   
+                                   <div className="flex justify-between items-center text-[13px] pt-1">
+                                      <span className="text-slate-500">Evin Tahmini Satış Değeri:</span>
                                       <span className="font-bold text-slate-700">{formatMoney(estHouseVal)}</span>
                                    </div>
-                                   <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mt-4 relative overflow-hidden">
-                                      <div className="absolute right-0 bottom-0 opacity-10 -mr-2 -mb-2"><Scale size={60}/></div>
-                                      <span className="block text-[11px] font-black uppercase text-indigo-600 mb-1 relative z-10">Adil Ayrılma / Devir Bedeli</span>
-                                      <div className={`text-2xl font-black relative z-10 ${estBuyoutVal > 0 ? 'text-indigo-900' : 'text-slate-400'}`}>
-                                         {estBuyoutVal > 0 ? formatMoney(estBuyoutVal) : 'Borçlu Durumda'}
-                                      </div>
+                                   
+                                   <div className="flex justify-between items-center text-sm font-semibold text-indigo-700">
+                                      <span>Satıştan Düşen Brüt Pay (%{viewedResults.targetShare}):</span>
+                                      <span>{formatMoney(grossShare)}</span>
+                                   </div>
+                                   
+                                   <div className="flex justify-between items-center text-sm font-semibold text-red-500 border-b border-slate-100 pb-3">
+                                      <span>- Kredi Erken Kapama Borcu:</span>
+                                      <span>-{formatMoney(debtToSubtract)}</span>
+                                   </div>
+
+                                   {compensateExpenses && (
+                                     <div className="flex justify-between items-center text-sm text-amber-600 font-semibold pt-1">
+                                        <span>+ Endeksli Masraf/Vergi İadesi:</span>
+                                        <span>{formatMoney(indexedExpenses)}</span>
+                                     </div>
+                                   )}
+                                </div>
+
+                                <div className={`p-4 rounded-xl border mt-5 relative overflow-hidden shrink-0 ${compensateExpenses ? 'bg-amber-50/50 border-amber-200' : 'bg-indigo-50/50 border-indigo-100'}`}>
+                                   <div className="absolute right-0 bottom-0 opacity-10 -mr-2 -mb-2"><Scale size={60}/></div>
+                                   <span className={`block text-[11px] font-black uppercase mb-1 relative z-10 ${compensateExpenses ? 'text-amber-700' : 'text-indigo-600'}`}>Net Ortaklıktan Ayrılma Bedeli</span>
+                                   <div className={`text-2xl font-black relative z-10 ${estBuyoutVal > 0 ? (compensateExpenses ? 'text-amber-900' : 'text-indigo-900') : 'text-slate-400'}`}>
+                                      {estBuyoutVal > 0 ? formatMoney(estBuyoutVal) : 'Borçlu Durumda'}
                                    </div>
                                 </div>
                              </div>
