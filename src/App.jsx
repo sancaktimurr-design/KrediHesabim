@@ -8,6 +8,7 @@ import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
   signInWithPopup,
+  signInAnonymously,
   signOut,
   updateProfile
 } from 'firebase/auth';
@@ -120,7 +121,15 @@ export default function App() {
           uid: user.uid 
         });
         
-        const savedPlans = JSON.parse(localStorage.getItem(`my_plans_${user.uid}`)) || [];
+        let savedPlans = JSON.parse(localStorage.getItem(`my_plans_${user.uid}`)) || [];
+        const oldPlanId = localStorage.getItem('lastPlanId');
+        
+        // Eski sistemden kalan planı kurtar ve listeye ekle
+        if (oldPlanId && !savedPlans.find(p => p.id === oldPlanId)) {
+           savedPlans.push({ id: oldPlanId, name: 'Önceki Planım (Kurtarıldı)', type: 'Konut Kredisi' });
+           localStorage.setItem(`my_plans_${user.uid}`, JSON.stringify(savedPlans));
+        }
+
         setMyPlans(savedPlans);
         
         setAppRoute(prev => (prev === 'login' || prev === 'register' ? 'lobby' : prev));
@@ -600,6 +609,16 @@ export default function App() {
     }
   };
 
+  const handleGuestLogin = async () => {
+    setAuthError('');
+    try {
+      const userCred = await signInAnonymously(auth);
+      await updateProfile(userCred.user, { displayName: 'Misafir Ortak' });
+    } catch (error) {
+      setAuthError('Misafir girişi başarısız oldu: ' + error.message);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -888,7 +907,7 @@ export default function App() {
                     />
                   </div>
                 </div>
-                <button type="submit" className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors mt-2">
+                <button type="submit" className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors mt-2 shadow-md">
                   Giriş Yap
                 </button>
                 
@@ -897,6 +916,10 @@ export default function App() {
                   <span className="flex-shrink-0 mx-4 text-slate-400 text-sm">veya</span>
                   <div className="flex-grow border-t border-slate-200"></div>
                 </div>
+
+                <button type="button" onClick={handleGuestLogin} className="w-full py-3.5 bg-amber-500 text-white rounded-xl font-bold hover:bg-amber-600 transition-colors flex items-center justify-center shadow-md mb-2">
+                  <Zap size={18} className="mr-1" /> Şifresiz Hızlı Giriş (Misafir)
+                </button>
 
                 <button type="button" onClick={handleGoogleAuth} className="w-full py-3 bg-white border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-50 transition-colors flex items-center justify-center shadow-sm">
                   <GoogleIcon /> Google ile Giriş Yap
@@ -947,7 +970,7 @@ export default function App() {
                     />
                   </div>
                 </div>
-                <button type="submit" className="w-full py-3 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors mt-2">
+                <button type="submit" className="w-full py-3 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors mt-2 shadow-md">
                   Kayıt Ol
                 </button>
                 
@@ -956,6 +979,10 @@ export default function App() {
                   <span className="flex-shrink-0 mx-4 text-slate-400 text-sm">veya</span>
                   <div className="flex-grow border-t border-slate-200"></div>
                 </div>
+
+                <button type="button" onClick={handleGuestLogin} className="w-full py-3.5 bg-amber-500 text-white rounded-xl font-bold hover:bg-amber-600 transition-colors flex items-center justify-center shadow-md mb-2">
+                  <Zap size={18} className="mr-1" /> Şifresiz Hızlı Giriş (Misafir)
+                </button>
 
                 <button type="button" onClick={handleGoogleAuth} className="w-full py-3 bg-white border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-50 transition-colors flex items-center justify-center shadow-sm">
                   <GoogleIcon /> Google ile Kayıt Ol
