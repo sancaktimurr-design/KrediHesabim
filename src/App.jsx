@@ -111,7 +111,6 @@ export default function App() {
   });
   const [customValuations, setCustomValuations] = useState([]);
   const [showValuationResults, setShowValuationResults] = useState(false);
-  const [compensateExpenses, setCompensateExpenses] = useState(false); // Yeni: Tapu masraflarını iade et butonu
 
   // --- FIREBASE AUTH DİNLEYİCİSİ ---
   useEffect(() => {
@@ -2379,14 +2378,6 @@ export default function App() {
                              </button>
                           </div>
                        </div>
-                       
-                       <div className="flex items-center gap-3 bg-amber-50 p-2 rounded-xl border border-amber-100">
-                          <span className="font-bold text-amber-800 text-sm">Masraf ve Vergi Durumu:</span>
-                          <label className="flex items-center gap-2 cursor-pointer bg-white p-1.5 rounded-lg border border-amber-200 shadow-sm">
-                             <input type="checkbox" checked={compensateExpenses} onChange={e => setCompensateExpenses(e.target.checked)} className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500" />
-                             <span className="text-xs font-bold text-amber-700">Batık Masrafları (Tapu vb.) İade Et</span>
-                          </label>
-                       </div>
                     </div>
                  </div>
               </div>
@@ -2442,7 +2433,6 @@ export default function App() {
                        <div className="bg-emerald-100 p-2 rounded-full shrink-0"><Info size={24} className="text-emerald-600"/></div>
                        <div className="text-sm leading-relaxed">
                           Aşağıdaki değerleme kartları <strong>"Gerçek Tasfiye (Evi Satıp Krediyi Kapatma)"</strong> simülasyonuna göre çalışır. Evin güncel değeri hesaplanır, ortağın brüt payı ayrılır ve bankaya olan <strong>Erken Kapama Borcu (Cezalı)</strong> bu paydan düşülerek net ayrılma bedeli bulunur.
-                          {compensateExpenses && <span className="font-bold text-amber-700"> (Geçmiş tapu/masraf zararları iade olarak eklenmiştir).</span>}
                        </div>
                     </div>
                     
@@ -2454,9 +2444,7 @@ export default function App() {
                           const grossShare = estHouseVal * (viewedResults.targetShare / 100); // Ev satılsa brüt payı
                           const debtToSubtract = viewedResults.earlyPayoffShare; // Banka kapama tutarı
                           const baseEquity = grossShare - debtToSubtract; // Net Pay
-                          
-                          const indexedExpenses = viewedResults.totalCalculatedExpenses * mult;
-                          const estBuyoutVal = baseEquity + (compensateExpenses ? indexedExpenses : 0);
+                          const estBuyoutVal = baseEquity;
                           const indexedPaid = viewedResults.totalPaidOutHistory * mult; 
                           
                           return (
@@ -2486,19 +2474,12 @@ export default function App() {
                                       <span>- Kredi Erken Kapama Borcu:</span>
                                       <span>-{formatMoney(debtToSubtract)}</span>
                                    </div>
-
-                                   {compensateExpenses && (
-                                     <div className="flex justify-between items-center text-sm text-amber-600 font-semibold pt-1">
-                                        <span>+ Endeksli Masraf/Vergi İadesi:</span>
-                                        <span>{formatMoney(indexedExpenses)}</span>
-                                     </div>
-                                   )}
                                 </div>
 
-                                <div className={`p-4 rounded-xl border mt-5 relative overflow-hidden shrink-0 ${compensateExpenses ? 'bg-amber-50/50 border-amber-200' : 'bg-indigo-50/50 border-indigo-100'}`}>
+                                <div className="p-4 rounded-xl border mt-5 relative overflow-hidden shrink-0 bg-indigo-50/50 border-indigo-100">
                                    <div className="absolute right-0 bottom-0 opacity-10 -mr-2 -mb-2"><Scale size={60}/></div>
-                                   <span className={`block text-[11px] font-black uppercase mb-1 relative z-10 ${compensateExpenses ? 'text-amber-700' : 'text-indigo-600'}`}>Net Ortaklıktan Ayrılma Bedeli</span>
-                                   <div className={`text-2xl font-black relative z-10 ${estBuyoutVal > 0 ? (compensateExpenses ? 'text-amber-900' : 'text-indigo-900') : 'text-slate-400'}`}>
+                                   <span className="block text-[11px] font-black uppercase mb-1 relative z-10 text-indigo-600">Net Ortaklıktan Ayrılma Bedeli</span>
+                                   <div className={`text-2xl font-black relative z-10 ${estBuyoutVal > 0 ? 'text-indigo-900' : 'text-slate-400'}`}>
                                       {estBuyoutVal > 0 ? formatMoney(estBuyoutVal) : 'Borçlu Durumda'}
                                    </div>
                                 </div>
@@ -2513,9 +2494,7 @@ export default function App() {
                           const grossShare = estHouseVal * (viewedResults.targetShare / 100); 
                           const debtToSubtract = viewedResults.earlyPayoffShare; 
                           const baseEquity = grossShare - debtToSubtract; 
-                          
-                          const indexedExpenses = viewedResults.totalCalculatedExpenses * mult;
-                          const estBuyoutVal = baseEquity + (compensateExpenses ? indexedExpenses : 0);
+                          const estBuyoutVal = baseEquity;
                           const indexedPaid = viewedResults.totalPaidOutHistory * mult;
                           
                           return (
@@ -2545,19 +2524,12 @@ export default function App() {
                                       <span>- Kredi Erken Kapama Borcu:</span>
                                       <span>-{formatMoney(debtToSubtract)}</span>
                                    </div>
-
-                                   {compensateExpenses && (
-                                     <div className="flex justify-between items-center text-sm text-amber-600 font-semibold pt-1">
-                                        <span>+ Endeksli Masraf/Vergi İadesi:</span>
-                                        <span>{formatMoney(indexedExpenses)}</span>
-                                     </div>
-                                   )}
                                 </div>
 
-                                <div className={`p-4 rounded-xl border mt-5 relative overflow-hidden shrink-0 ${compensateExpenses ? 'bg-amber-50/50 border-amber-200' : 'bg-indigo-50/50 border-indigo-100'}`}>
+                                <div className="p-4 rounded-xl border mt-5 relative overflow-hidden shrink-0 bg-indigo-50/50 border-indigo-100">
                                    <div className="absolute right-0 bottom-0 opacity-10 -mr-2 -mb-2"><Scale size={60}/></div>
-                                   <span className={`block text-[11px] font-black uppercase mb-1 relative z-10 ${compensateExpenses ? 'text-amber-700' : 'text-indigo-600'}`}>Net Ortaklıktan Ayrılma Bedeli</span>
-                                   <div className={`text-2xl font-black relative z-10 ${estBuyoutVal > 0 ? (compensateExpenses ? 'text-amber-900' : 'text-indigo-900') : 'text-slate-400'}`}>
+                                   <span className="block text-[11px] font-black uppercase mb-1 relative z-10 text-indigo-600">Net Ortaklıktan Ayrılma Bedeli</span>
+                                   <div className={`text-2xl font-black relative z-10 ${estBuyoutVal > 0 ? 'text-indigo-900' : 'text-slate-400'}`}>
                                       {estBuyoutVal > 0 ? formatMoney(estBuyoutVal) : 'Borçlu Durumda'}
                                    </div>
                                 </div>
