@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Calculator, Home, PieChart, Users, Receipt, Plus, Trash2, Info, UserPlus, LogIn, Mail, Link as LinkIcon, CalendarClock, Lock, User, Table, X, ArrowRight, ArrowLeft, CheckCircle2, Unlock, CheckSquare, Square, Landmark, Coins, TrendingUp, Share2, DownloadCloud, LineChart } from 'lucide-react';
+import { Calculator, Home, PieChart, Users, Receipt, Plus, Trash2, Info, UserPlus, LogIn, Mail, Link as LinkIcon, CalendarClock, Lock, User, Table, X, ArrowRight, ArrowLeft, CheckCircle2, Unlock, CheckSquare, Square, Landmark, Coins, TrendingUp, Share2, DownloadCloud, LineChart, Target } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
@@ -43,7 +43,8 @@ export default function App() {
   // --- UYGULAMA ROTASI & AUTH DURUMU ---
   const [appRoute, setAppRoute] = useState('login'); 
   const [currentUser, setCurrentUser] = useState(null);
-  const [dashboardTab, setDashboardTab] = useState('overview'); // overview, payments
+  const [dashboardTab, setDashboardTab] = useState('overview'); 
+  const [viewingPartnerId, setViewingPartnerId] = useState(null); // Yatırım panelinde kimi görüyoruz?
   
   const [currentPlanId, setCurrentPlanId] = useState('');
   const [joinCode, setJoinCode] = useState('');
@@ -67,6 +68,7 @@ export default function App() {
   // --- HESAPLAMA DURUMU (STATE) ---
   const [property, setProperty] = useState({
     price: 4000000,
+    currentValue: 4000000, // Evin bugünkü güncel değeri eklendi
     interestRate: 2.89,
     term: 120,
     startDate: new Date().toISOString().slice(0,7),
@@ -151,7 +153,7 @@ export default function App() {
       { id: 1, name: currentUser.name, uid: currentUser.uid, downPayment: 0, targetShare: 50 }, 
       { id: 2, name: '2. Ortak', uid: '', downPayment: 0, targetShare: 50 }
     ]);
-    setProperty({ price: 0, interestRate: 2.89, term: 120, startDate: new Date().toISOString().slice(0,7) });
+    setProperty({ price: 0, currentValue: 0, interestRate: 2.89, term: 120, startDate: new Date().toISOString().slice(0,7) });
     setPaidMonths([]);
     setInvestmentData({
       1: { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates },
@@ -198,7 +200,10 @@ export default function App() {
   const finishWizardAndSave = async () => {
     if (!currentUser) return;
     const newCode = generateCode();
-    const initialData = { property, expenses, partners, paidMonths: [], investmentData, currentRates, createdAt: new Date().toISOString() };
+    
+    // Kurulum bittiğinde current value'yu price'a eşitleyelim
+    const finalProperty = { ...property, currentValue: property.price };
+    const initialData = { property: finalProperty, expenses, partners, paidMonths: [], investmentData, currentRates, createdAt: new Date().toISOString() };
     
     try {
       const docRef = doc(db, 'plans', newCode);
@@ -325,42 +330,36 @@ export default function App() {
     return date.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
   };
 
-  // --- YATIRIM KUR GÜNCELLEME İŞLEMLERİ ---
+  // --- YATIRIM KUR GÜNCELLEME İŞLEMLERİ (DERİN KOPYALAMA İLE BUG DÜZELTİLDİ) ---
   const updateInvestmentRate = (partnerId, category, field, value) => {
-    const updated = { ...investmentData };
-    if (!updated[partnerId]) updated[partnerId] = { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates };
-    
-    updated[partnerId].rates = {
-      ...updated[partnerId].rates,
-      [category]: {
-        ...updated[partnerId].rates[category],
-        [field]: value
-      }
-    };
-    
-    setInvestmentData(updated);
-    syncToFirestore({ investmentData: updated });
+    setInvestmentData(prev => {
+      const updated = JSON.parse(JSON.stringify(prev)); // React state derin kopyalama
+      if (!updated[partnerId]) updated[partnerId] = { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates };
+      updated[partnerId].rates[category][field] = value;
+      syncToFirestore({ investmentData: updated });
+      return updated;
+    });
   };
 
   const updateInvestmentMonthRate = (partnerId, month, field, value) => {
-    const updated = { ...investmentData };
-    if (!updated[partnerId]) updated[partnerId] = { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates };
-    
-    if (!updated[partnerId].rates.months[month]) {
-       updated[partnerId].rates.months[month] = {usd:'', eur:'', gold:''};
-    }
-    
-    updated[partnerId].rates.months[month] = {
-      ...updated[partnerId].rates.months[month],
-      [field]: value
-    };
-    
-    setInvestmentData(updated);
-    syncToFirestore({ investmentData: updated });
+    setInvestmentData(prev => {
+      const strMonth = String(month); // Aylar obje key'i olarak string olmalı
+      const updated = JSON.parse(JSON.stringify(prev));
+      
+      if (!updated[partnerId]) updated[partnerId] = { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates };
+      if (!updated[partnerId].rates.months[strMonth]) {
+         updated[partnerId].rates.months[strMonth] = {usd:'', eur:'', gold:''};
+      }
+      
+      updated[partnerId].rates.months[strMonth][field] = value;
+      
+      syncToFirestore({ investmentData: updated });
+      return updated;
+    });
   };
 
   const shareInvestmentRates = (partnerId) => {
-    const updated = { ...investmentData };
+    const updated = JSON.parse(JSON.stringify(investmentData));
     if (!updated[partnerId]) updated[partnerId] = { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates };
     updated[partnerId].isShared = true;
     setInvestmentData(updated);
@@ -369,7 +368,7 @@ export default function App() {
   };
 
   const acceptSharedRates = (myId, otherId) => {
-    const updated = { ...investmentData };
+    const updated = JSON.parse(JSON.stringify(investmentData));
     if (!updated[myId]) updated[myId] = { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates };
     updated[myId].usePartnerRates = true;
     updated[myId].acceptedShareFrom = otherId;
@@ -379,7 +378,7 @@ export default function App() {
   };
 
   const disconnectSharedRates = (myId) => {
-    const updated = { ...investmentData };
+    const updated = JSON.parse(JSON.stringify(investmentData));
     if (!updated[myId]) return;
     updated[myId].usePartnerRates = false;
     updated[myId].acceptedShareFrom = null;
@@ -534,6 +533,7 @@ export default function App() {
 
     const partnerResults = partnerBaseCalculations.map(p => {
       const loanShareRatio = totalLoanNeeded > 0 ? p.requiredLoan / totalLoanNeeded : 0;
+      const remainingLoanDebt = bankRemainingPrincipal * loanShareRatio; // Kalan kredi borcu
       
       let outOfPocketExcludedExpenses = 0;
       let automatedExpenses = 0;
@@ -560,8 +560,7 @@ export default function App() {
       const interestContribution = totalInterest * loanShareRatio;
       const totalLoanDebtContribution = principalContribution + interestContribution;
 
-      // Bugüne kadar cepten çıkan "gerçekleşmiş" ödemeler:
-      // Peşinatlar + Elden/Otomatik ödenmiş masraflar + ÖDENDİ işaretlenen ayların taksitleri
+      // Bugüne kadar cepten çıkan "gerçekleşmiş" ödemeler
       let totalPaidInstallments = 0;
       amortizationSchedule.forEach(row => {
         if (paidMonths.includes(row.month)) {
@@ -581,6 +580,7 @@ export default function App() {
       return {
         ...p,
         loanShareRatio,
+        remainingLoanDebt,
         outOfPocketExcludedExpenses,
         totalCalculatedExpenses,
         principalContribution,
@@ -620,14 +620,21 @@ export default function App() {
     return new Intl.NumberFormat('tr-TR', { style: 'decimal', maximumFractionDigits: 2 }).format(amount) + ' ' + currencySymbol;
   };
 
-  // --- KİMLİK (PARTNER) TESPİTİ ---
+  // --- KİMLİK (PARTNER) TESPİTİ VE YATIRIM EKRANI GEÇİŞİ ---
   const myPartner = currentUser ? (partners.find(p => p.uid === currentUser.uid) || partners[0]) : partners[0];
   const otherPartner = partners.find(p => p.id !== myPartner.id) || partners[1];
+  
+  // Eğer yatırm ekranında özel olarak biri seçilmediyse, varsayılan olarak kendimi göster
+  const activeViewPartnerId = viewingPartnerId || myPartner.id;
+  const viewedPartner = partners.find(p => p.id === activeViewPartnerId);
+  const viewedResults = calculations.partnerResults.find(p => p.id === viewedPartner.id) || calculations.partnerResults[0];
 
-  // --- YATIRIM HESAPLAMALARI (SADECE ÖDEMELERİM SEKMESİ İÇİN) ---
+  // --- YATIRIM HESAPLAMALARI ---
   const myInvData = investmentData[myPartner.id] || { rates: defaultInvRates, usePartnerRates: false };
   const otherInvData = investmentData[otherPartner.id] || { rates: defaultInvRates, isShared: false };
   
+  // ÖNEMLİ: Hangi sekmeye bakarsak bakalım "Kur Oranları" her zaman benim yazdığım kurlardır.
+  // (Sadece ben "Eşitle" dediysem ortağımın kurlarını baz alırım).
   const activeRates = myInvData.usePartnerRates ? otherInvData.rates : myInvData.rates;
   
   const calculateEquivalent = (tryAmount, rate) => {
@@ -636,32 +643,37 @@ export default function App() {
      return tryAmount / r;
   };
 
-  const myResults = calculations.partnerResults.find(p => p.id === myPartner.id) || calculations.partnerResults[0];
-
+  // Aylık kurları anında yansıtabilmek için `viewedResults` ve `paidMonths` a bağlı useMemo
   const totalInvValue = useMemo(() => {
      let usd = 0, eur = 0, gold = 0;
      
      // 1. Peşinat
-     usd += calculateEquivalent(myResults.houseDp, activeRates.dp?.usd);
-     eur += calculateEquivalent(myResults.houseDp, activeRates.dp?.eur);
-     gold += calculateEquivalent(myResults.houseDp, activeRates.dp?.gold);
+     usd += calculateEquivalent(viewedResults.houseDp, activeRates.dp?.usd);
+     eur += calculateEquivalent(viewedResults.houseDp, activeRates.dp?.eur);
+     gold += calculateEquivalent(viewedResults.houseDp, activeRates.dp?.gold);
 
      // 2. Masraflar
-     usd += calculateEquivalent(myResults.totalCalculatedExpenses, activeRates.exp?.usd);
-     eur += calculateEquivalent(myResults.totalCalculatedExpenses, activeRates.exp?.eur);
-     gold += calculateEquivalent(myResults.totalCalculatedExpenses, activeRates.exp?.gold);
+     usd += calculateEquivalent(viewedResults.totalCalculatedExpenses, activeRates.exp?.usd);
+     eur += calculateEquivalent(viewedResults.totalCalculatedExpenses, activeRates.exp?.eur);
+     gold += calculateEquivalent(viewedResults.totalCalculatedExpenses, activeRates.exp?.gold);
 
      // 3. Taksitler
      paidMonths.forEach(m => {
-        const amt = myResults.monthlyContribution;
-        const mRates = activeRates.months?.[m] || {};
+        const amt = viewedResults.monthlyContribution;
+        const mRates = activeRates.months?.[String(m)] || {};
         usd += calculateEquivalent(amt, mRates.usd);
         eur += calculateEquivalent(amt, mRates.eur);
         gold += calculateEquivalent(amt, mRates.gold);
      });
 
      return { usd, eur, gold };
-  }, [activeRates, myResults, paidMonths]);
+  }, [activeRates, viewedResults, paidMonths]);
+
+
+  // Kâr/Zarar Hesaplaması (Doğru Finansal Model)
+  const currentHouseValue = property.currentValue || property.price; // Kullanıcı değer girdiyse onu, girmediyse alış fiyatını baz al
+  const grossHouseShareValue = currentHouseValue * (viewedResults.targetShare / 100); // Evin hedef payı üzerinden brüt değeri
+  const netHouseWealth = grossHouseShareValue - viewedResults.remainingLoanDebt; // Brüt Değer eksi Bankaya Kalan Borç
 
 
   // --- GÖRÜNÜMLER (VIEWS) ---
@@ -1668,13 +1680,27 @@ export default function App() {
         {dashboardTab === 'payments' && (
           <div className="space-y-6 animate-in fade-in duration-300">
              
-             {/* Üst Bilgi Banner & Paylaşım */}
+             {/* Üst Bilgi Banner, Paylaşım ve Ortak Seçici (YENİ) */}
              <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
                <div>
-                  <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                    <User size={24} className="text-indigo-600"/> {myPartner.name} - Özel Yatırım Panosu
+                  <div className="flex items-center gap-3 mb-2">
+                     <button 
+                        onClick={() => setViewingPartnerId(myPartner.id)}
+                        className={`px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all ${viewedPartner.id === myPartner.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                     >
+                        <User size={16}/> Benim Analizim
+                     </button>
+                     <button 
+                        onClick={() => setViewingPartnerId(otherPartner.id)}
+                        className={`px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all ${viewedPartner.id === otherPartner.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                     >
+                        <Users size={16}/> Ortağımın Analizi
+                     </button>
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2 mt-3 border-t border-slate-100 pt-3">
+                    {viewedPartner.name} - Özel Yatırım Panosu
                   </h2>
-                  <p className="text-sm text-slate-500 mt-1">Burada girdiğiniz kurlar tamamen size özeldir, diğer ortak göremez.</p>
+                  <p className="text-sm text-slate-500 mt-1">Buradaki tüm yatırım kâr/zarar hesaplamaları sizin girdiğiniz global kurlar üzerinden yapılmaktadır.</p>
                </div>
                
                <div className="flex flex-col gap-2 min-w-[250px]">
@@ -1717,11 +1743,11 @@ export default function App() {
 
                   {/* 1. PEŞİNAT */}
                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                     <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Home size={18} className="text-indigo-600"/> 1. Peşinat Ödemesi</h3>
+                     <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Home size={18} className="text-indigo-600"/> 1. Peşinat Ödemesi ({viewedPartner.name})</h3>
                      <div className="flex flex-col sm:flex-row gap-4 mb-4 items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
                         <div className="flex-1">
                            <span className="text-sm font-medium text-slate-500">Eve Verilen Nakit Peşinat</span>
-                           <div className="text-xl font-bold text-slate-800">{formatMoney(myResults.houseDp)}</div>
+                           <div className="text-xl font-bold text-slate-800">{formatMoney(viewedResults.houseDp)}</div>
                         </div>
                         <div className="flex-1 flex gap-2">
                            <div className="flex flex-col flex-1">
@@ -1754,20 +1780,20 @@ export default function App() {
                      <div className="flex justify-between items-center text-sm font-semibold text-slate-600 bg-indigo-50/50 p-3 rounded-lg border border-indigo-100">
                         <span>O günkü değerleri:</span>
                         <div className="flex gap-4">
-                           <span className="text-amber-600">{formatCurrency(calculateEquivalent(myResults.houseDp, activeRates.dp?.gold), 'gr')}</span>
-                           <span className="text-green-600">{formatCurrency(calculateEquivalent(myResults.houseDp, activeRates.dp?.usd), '$')}</span>
-                           <span className="text-blue-600">{formatCurrency(calculateEquivalent(myResults.houseDp, activeRates.dp?.eur), '€')}</span>
+                           <span className="text-amber-600">{formatCurrency(calculateEquivalent(viewedResults.houseDp, activeRates.dp?.gold), 'gr')}</span>
+                           <span className="text-green-600">{formatCurrency(calculateEquivalent(viewedResults.houseDp, activeRates.dp?.usd), '$')}</span>
+                           <span className="text-blue-600">{formatCurrency(calculateEquivalent(viewedResults.houseDp, activeRates.dp?.eur), '€')}</span>
                         </div>
                      </div>
                   </div>
 
                   {/* 2. MASRAFLAR */}
                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                     <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Receipt size={18} className="text-indigo-600"/> 2. Tapu, Sigorta & Ek Masraflar</h3>
+                     <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Receipt size={18} className="text-indigo-600"/> 2. Tapu, Sigorta & Ek Masraflar ({viewedPartner.name})</h3>
                      <div className="flex flex-col sm:flex-row gap-4 mb-4 items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
                         <div className="flex-1">
-                           <span className="text-sm font-medium text-slate-500">Cebinizden Çıkan Toplam Masraf</span>
-                           <div className="text-xl font-bold text-slate-800">{formatMoney(myResults.totalCalculatedExpenses)}</div>
+                           <span className="text-sm font-medium text-slate-500">Çıkan Toplam Masraf (Manuel+Oto)</span>
+                           <div className="text-xl font-bold text-slate-800">{formatMoney(viewedResults.totalCalculatedExpenses)}</div>
                         </div>
                         <div className="flex-1 flex gap-2">
                            <div className="flex flex-col flex-1">
@@ -1799,16 +1825,16 @@ export default function App() {
                      <div className="flex justify-between items-center text-sm font-semibold text-slate-600 bg-indigo-50/50 p-3 rounded-lg border border-indigo-100">
                         <span>O günkü değerleri:</span>
                         <div className="flex gap-4">
-                           <span className="text-amber-600">{formatCurrency(calculateEquivalent(myResults.totalCalculatedExpenses, activeRates.exp?.gold), 'gr')}</span>
-                           <span className="text-green-600">{formatCurrency(calculateEquivalent(myResults.totalCalculatedExpenses, activeRates.exp?.usd), '$')}</span>
-                           <span className="text-blue-600">{formatCurrency(calculateEquivalent(myResults.totalCalculatedExpenses, activeRates.exp?.eur), '€')}</span>
+                           <span className="text-amber-600">{formatCurrency(calculateEquivalent(viewedResults.totalCalculatedExpenses, activeRates.exp?.gold), 'gr')}</span>
+                           <span className="text-green-600">{formatCurrency(calculateEquivalent(viewedResults.totalCalculatedExpenses, activeRates.exp?.usd), '$')}</span>
+                           <span className="text-blue-600">{formatCurrency(calculateEquivalent(viewedResults.totalCalculatedExpenses, activeRates.exp?.eur), '€')}</span>
                         </div>
                      </div>
                   </div>
 
                   {/* 3. ÖDENEN TAKSİTLER */}
                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                     <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2"><CalendarClock size={18} className="text-indigo-600"/> 3. Ödenen Taksitleriniz</h3>
+                     <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2"><CalendarClock size={18} className="text-indigo-600"/> 3. Ödenen Taksitler ({viewedPartner.name})</h3>
                      <p className="text-xs text-slate-500 mb-4">"Genel Durum" sekmesinde ödediğinizi işaretlediğiniz aylar burada listelenir.</p>
 
                      {paidMonths.length === 0 ? (
@@ -1818,8 +1844,8 @@ export default function App() {
                      ) : (
                         <div className="space-y-4">
                            {paidMonths.sort((a,b)=>a-b).map(month => {
-                              const amt = myResults.monthlyContribution;
-                              const mRates = activeRates.months?.[month] || {};
+                              const amt = viewedResults.monthlyContribution;
+                              const mRates = activeRates.months?.[String(month)] || {};
                               
                               return (
                               <div key={month} className="flex flex-col sm:flex-row gap-4 items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
@@ -1865,12 +1891,25 @@ export default function App() {
                 {/* SAĞ PANEL (Sonuçlar ve Analiz) */}
                 <div className="lg:col-span-4 space-y-6">
                   
-                  {/* Bugünkü Kur Girişi */}
-                  <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-800">
-                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><TrendingUp size={18} className="text-emerald-400"/> Bugünkü Güncel Kurlar</h3>
-                     <p className="text-xs text-slate-400 mb-4">Kâr/Zarar durumunuzu hesaplamak için bugünkü kurları giriniz.</p>
+                  {/* Evin Güncel Değeri ve Bugünkü Kur (Finansal Veri Girişi) */}
+                  <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-800 relative overflow-hidden">
+                     <div className="absolute top-0 right-0 p-4 opacity-5"><Target size={120}/></div>
                      
-                     <div className="space-y-3">
+                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 relative z-10"><Target size={18} className="text-indigo-400"/> Evin Mevcut Piyasa Değeri</h3>
+                     <p className="text-xs text-slate-400 mb-3 relative z-10">Evin bugünkü güncel/tahmini piyasa değerini girerek doğru bir kâr analizi yapabilirsiniz.</p>
+                     
+                     <div className="relative z-10 mb-6 pb-6 border-b border-slate-700">
+                        <input 
+                           type="number" 
+                           value={property.currentValue || ''} 
+                           onChange={(e) => updateProperty('currentValue', Number(e.target.value))}
+                           className="w-full p-3 text-xl bg-slate-800 border border-slate-600 rounded-lg outline-none focus:border-indigo-400 text-white font-bold"
+                        />
+                     </div>
+
+                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 relative z-10"><TrendingUp size={18} className="text-emerald-400"/> Bugünkü Güncel Kurlar</h3>
+                     
+                     <div className="space-y-3 relative z-10">
                         <div className="flex items-center gap-3">
                            <span className="w-16 font-medium text-amber-400 text-sm">Altın:</span>
                            <input type="number" value={currentRates.gold || ''} onChange={e=>updateCurrentRates('gold', e.target.value)} placeholder="0.00" className="flex-1 p-2 bg-slate-800 border border-slate-700 rounded outline-none focus:border-amber-400 text-white"/>
@@ -1886,31 +1925,48 @@ export default function App() {
                      </div>
                   </div>
 
-                  {/* Yatırım Analizi */}
+                  {/* Yatırım Analizi (YENİ MODEL) */}
                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
                      <div className="absolute top-0 right-0 p-4 opacity-5"><LineChart size={120}/></div>
-                     <h3 className="text-lg font-bold text-slate-800 mb-1 relative z-10">Yatırım Özeti</h3>
-                     <p className="text-xs text-slate-500 mb-6 relative z-10">Şu ana kadar eve ödediğiniz toplam paranın (peşinat+masraf+taksit) farklı yatırım araçlarındaki karşılığı.</p>
+                     <h3 className="text-lg font-bold text-slate-800 mb-1 relative z-10">Yatırım Özeti ({viewedPartner.name})</h3>
+                     <p className="text-[11px] text-slate-500 mb-6 relative z-10 leading-relaxed">
+                        Bugüne kadar cepten çıkan para hesaplanıp, evin bugünkü değerinden "kalan banka borcu" düşülerek gerçek bir "Net Kâr" analizi yapılmıştır.
+                     </p>
 
                      <div className="space-y-5 relative z-10">
-                        {/* TL Toplamı */}
+                        
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                           <div className="flex justify-between items-center text-sm">
+                              <span className="text-slate-600 font-medium">Güncel Ev Değerinden Payı ({viewedResults.targetShare}%):</span>
+                              <span className="font-bold text-slate-800">{formatMoney(grossHouseShareValue)}</span>
+                           </div>
+                           <div className="flex justify-between items-center text-sm border-b border-slate-200 pb-3">
+                              <span className="text-red-500 font-medium">Banka Kalan Kredi Borcu:</span>
+                              <span className="font-bold text-red-600">-{formatMoney(viewedResults.remainingLoanDebt)}</span>
+                           </div>
+                           <div className="flex justify-between items-center">
+                              <span className="text-sm font-bold text-indigo-900">Evden Gelen NET Varlık:</span>
+                              <span className="text-lg font-black text-indigo-700">{formatMoney(netHouseWealth)}</span>
+                           </div>
+                        </div>
+
                         <div>
-                           <span className="block text-xs font-bold uppercase text-slate-400">Şimdiye Kadar Ödediğiniz Toplam TL</span>
-                           <div className="text-2xl font-black text-indigo-700">{formatMoney(myResults.totalPaidOutHistory)}</div>
+                           <span className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Şimdiye Kadar Çıkan Toplam Nakit:</span>
+                           <div className="text-xl font-bold text-slate-600">{formatMoney(viewedResults.totalPaidOutHistory)}</div>
                         </div>
 
                         <div className="border-t border-slate-100 pt-4 space-y-4">
                            {/* ALTIN */}
                            <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100">
                               <div className="flex justify-between items-center mb-1">
-                                 <span className="text-sm font-bold text-amber-800 flex items-center gap-1"><Coins size={14}/> Toplam Biriken Altın</span>
+                                 <span className="text-sm font-bold text-amber-800 flex items-center gap-1"><Coins size={14}/> Biriken Toplam Altın</span>
                                  <span className="font-bold text-amber-600">{formatCurrency(totalInvValue.gold, 'gr')}</span>
                               </div>
                               {currentRates.gold && totalInvValue.gold > 0 && (
                                  <div className="flex justify-between items-center text-xs mt-2 pt-2 border-t border-amber-200/50">
                                     <span className="text-slate-500">Bugünkü Kâr/Zarar Değeri:</span>
-                                    <span className={`font-bold ${((totalInvValue.gold * currentRates.gold) - myResults.totalPaidOutHistory) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                       {formatMoney(totalInvValue.gold * currentRates.gold)}
+                                    <span className={`font-bold ${((netHouseWealth) - (totalInvValue.gold * currentRates.gold)) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                       {formatMoney((netHouseWealth) - (totalInvValue.gold * currentRates.gold))}
                                     </span>
                                  </div>
                               )}
@@ -1919,14 +1975,14 @@ export default function App() {
                            {/* DOLAR */}
                            <div className="bg-green-50/50 p-3 rounded-xl border border-green-100">
                               <div className="flex justify-between items-center mb-1">
-                                 <span className="text-sm font-bold text-green-800 flex items-center gap-1"><Coins size={14}/> Toplam Biriken Dolar</span>
+                                 <span className="text-sm font-bold text-green-800 flex items-center gap-1"><Coins size={14}/> Biriken Toplam Dolar</span>
                                  <span className="font-bold text-green-600">{formatCurrency(totalInvValue.usd, '$')}</span>
                               </div>
                               {currentRates.usd && totalInvValue.usd > 0 && (
                                  <div className="flex justify-between items-center text-xs mt-2 pt-2 border-t border-green-200/50">
                                     <span className="text-slate-500">Bugünkü Kâr/Zarar Değeri:</span>
-                                    <span className={`font-bold ${((totalInvValue.usd * currentRates.usd) - myResults.totalPaidOutHistory) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                       {formatMoney(totalInvValue.usd * currentRates.usd)}
+                                    <span className={`font-bold ${((netHouseWealth) - (totalInvValue.usd * currentRates.usd)) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                       {formatMoney((netHouseWealth) - (totalInvValue.usd * currentRates.usd))}
                                     </span>
                                  </div>
                               )}
@@ -1935,14 +1991,14 @@ export default function App() {
                            {/* EURO */}
                            <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100">
                               <div className="flex justify-between items-center mb-1">
-                                 <span className="text-sm font-bold text-blue-800 flex items-center gap-1"><Coins size={14}/> Toplam Biriken Euro</span>
+                                 <span className="text-sm font-bold text-blue-800 flex items-center gap-1"><Coins size={14}/> Biriken Toplam Euro</span>
                                  <span className="font-bold text-blue-600">{formatCurrency(totalInvValue.eur, '€')}</span>
                               </div>
                               {currentRates.eur && totalInvValue.eur > 0 && (
                                  <div className="flex justify-between items-center text-xs mt-2 pt-2 border-t border-blue-200/50">
                                     <span className="text-slate-500">Bugünkü Kâr/Zarar Değeri:</span>
-                                    <span className={`font-bold ${((totalInvValue.eur * currentRates.eur) - myResults.totalPaidOutHistory) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                       {formatMoney(totalInvValue.eur * currentRates.eur)}
+                                    <span className={`font-bold ${((netHouseWealth) - (totalInvValue.eur * currentRates.eur)) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                       {formatMoney((netHouseWealth) - (totalInvValue.eur * currentRates.eur))}
                                     </span>
                                  </div>
                               )}
