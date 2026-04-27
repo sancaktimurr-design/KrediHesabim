@@ -101,10 +101,14 @@ export default function App() {
   const [currentRates, setCurrentRates] = useState({ usd: '', eur: '', gold: '' });
 
   // Ayrılık & Değerleme (Skalalar)
-  const [valuationMetrics, setValuationMetrics] = useState([
-    { id: 1, name: 'Asgari Ücret', initial: '', current: '' },
-    { id: 2, name: 'En Düşük Memur Maaşı', initial: '', current: '' }
-  ]);
+  const [valuationScenarios, setValuationScenarios] = useState({
+    gold: { name: 'Gram Altın', initial: '', current: '' },
+    usd: { name: 'Dolar ($)', initial: '', current: '' },
+    eur: { name: 'Euro (€)', initial: '', current: '' },
+    wage: { name: 'Asgari Ücret', initial: '', current: '' }
+  });
+  const [customValuations, setCustomValuations] = useState([]);
+  const [showValuationResults, setShowValuationResults] = useState(false);
 
   // --- FIREBASE AUTH DİNLEYİCİSİ ---
   useEffect(() => {
@@ -143,7 +147,8 @@ export default function App() {
         if (data.paidMonths) setPaidMonths(data.paidMonths);
         if (data.investmentData) setInvestmentData(data.investmentData);
         if (data.currentRates) setCurrentRates(data.currentRates);
-        if (data.valuationMetrics) setValuationMetrics(data.valuationMetrics);
+        if (data.valuationScenarios) setValuationScenarios(data.valuationScenarios);
+        if (data.customValuations) setCustomValuations(data.customValuations);
       }
     }, (error) => console.error("Veri çekme hatası:", error));
 
@@ -192,10 +197,14 @@ export default function App() {
       1: { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates },
       2: { isShared: false, usePartnerRates: false, acceptedShareFrom: null, rates: defaultInvRates }
     });
-    setValuationMetrics([
-      { id: 1, name: 'Asgari Ücret', initial: '', current: '' },
-      { id: 2, name: 'En Düşük Memur Maaşı', initial: '', current: '' }
-    ]);
+    setValuationScenarios({
+      gold: { name: 'Gram Altın', initial: '', current: '' },
+      usd: { name: 'Dolar ($)', initial: '', current: '' },
+      eur: { name: 'Euro (€)', initial: '', current: '' },
+      wage: { name: 'Asgari Ücret', initial: '', current: '' }
+    });
+    setCustomValuations([]);
+    setShowValuationResults(false);
     setExpenses([
       { id: 1, name: 'Emlakçı Komisyonu', amount: 0, isIncluded: true, splitByLoanRatio: false, paidBy: {} },
       { id: 2, name: 'Tapu Harcı', amount: 0, isIncluded: true, splitByLoanRatio: false, paidBy: {} },
@@ -249,7 +258,8 @@ export default function App() {
       paidMonths: [], 
       investmentData, 
       currentRates, 
-      valuationMetrics,
+      valuationScenarios,
+      customValuations,
       createdAt: new Date().toISOString() 
     };
     
@@ -522,23 +532,29 @@ export default function App() {
   };
 
   // --- VALUATION METRICS (DEĞERLEME) YARDIMCILARI ---
-  const updateValuationMetric = (id, field, value) => {
-    const updated = valuationMetrics.map(m => m.id === id ? { ...m, [field]: value } : m);
-    setValuationMetrics(updated);
-    syncToFirestore({ valuationMetrics: updated });
+  const updateScenario = (key, field, value) => {
+    const updated = { ...valuationScenarios, [key]: { ...valuationScenarios[key], [field]: value } };
+    setValuationScenarios(updated);
+    syncToFirestore({ valuationScenarios: updated });
   };
 
-  const addValuationMetric = () => {
-    const newId = valuationMetrics.length > 0 ? Math.max(...valuationMetrics.map(m => m.id)) + 1 : 1;
-    const updated = [...valuationMetrics, { id: newId, name: 'Yeni Skala', initial: '', current: '' }];
-    setValuationMetrics(updated);
-    syncToFirestore({ valuationMetrics: updated });
+  const updateCustomValuation = (id, field, value) => {
+    const updated = customValuations.map(c => c.id === id ? { ...c, [field]: value } : c);
+    setCustomValuations(updated);
+    syncToFirestore({ customValuations: updated });
   };
 
-  const removeValuationMetric = (id) => {
-    const updated = valuationMetrics.filter(m => m.id !== id);
-    setValuationMetrics(updated);
-    syncToFirestore({ valuationMetrics: updated });
+  const addCustomValuation = () => {
+    const newId = customValuations.length > 0 ? Math.max(...customValuations.map(c => c.id)) + 1 : 1;
+    const updated = [...customValuations, { id: newId, name: 'Yeni Skala', initial: '', current: '' }];
+    setCustomValuations(updated);
+    syncToFirestore({ customValuations: updated });
+  };
+
+  const removeCustomValuation = (id) => {
+    const updated = customValuations.filter(c => c.id !== id);
+    setCustomValuations(updated);
+    syncToFirestore({ customValuations: updated });
   };
 
 
@@ -2288,7 +2304,7 @@ export default function App() {
                  <div className="max-w-3xl relative z-10">
                     <h2 className="text-2xl font-bold text-slate-800 mb-2">Ortaklıktan Ayrılma ve Değerleme Panosu</h2>
                     <p className="text-slate-500 leading-relaxed mb-6">
-                       Eğer ortaklardan biri ayrılmak isterse, bugüne kadar ödediği tutarın karşılığını veya evin bugünkü olması gereken değerini farklı ekonomik göstergelere göre hesaplayıp adil bir hisse devir (Ayrılma) bedeli bulabilirsiniz.
+                       Aşağıdaki tabloya evin/kredinin alındığı günkü göstergeleri ve bugünkü güncel değerleri girerek "Hesapla" tuşuna basın. Sistem size her bir endekse göre olası ayrılık bedellerini kıyaslayarak sunacaktır.
                     </p>
                     
                     <div className="flex items-center gap-3">
@@ -2305,27 +2321,131 @@ export default function App() {
                  </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* GİRİŞ FORMU TABLOSU */}
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                 <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><TrendingUp size={18} className="text-indigo-600"/> Karşılaştırma Endekslerini Girin</h3>
+                 <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[600px]">
+                       <thead>
+                          <tr className="bg-slate-50 border-y border-slate-200 text-slate-600 text-sm">
+                             <th className="p-3 font-bold w-1/3">Ekonomik Gösterge / Skala</th>
+                             <th className="p-3 font-bold text-indigo-600">Kredi Çekilirken (Eski)</th>
+                             <th className="p-3 font-bold text-emerald-600">Ayrılırken (Bugün)</th>
+                             <th className="p-3 font-bold text-center w-16"></th>
+                          </tr>
+                       </thead>
+                       <tbody>
+                          {Object.entries(valuationScenarios).map(([key, data]) => (
+                             <tr key={key} className="border-b border-slate-100 hover:bg-slate-50/50">
+                                <td className="p-3 font-semibold text-slate-700">{data.name}</td>
+                                <td className="p-3"><input type="number" placeholder="0" value={data.initial} onChange={e=>updateScenario(key, 'initial', e.target.value)} className="w-full p-2 border border-slate-200 rounded outline-none focus:border-indigo-400 bg-white"/></td>
+                                <td className="p-3"><input type="number" placeholder="0" value={data.current} onChange={e=>updateScenario(key, 'current', e.target.value)} className="w-full p-2 border border-slate-200 rounded outline-none focus:border-emerald-400 bg-white"/></td>
+                                <td className="p-3 text-center"></td>
+                             </tr>
+                          ))}
+                          {customValuations.map(custom => (
+                             <tr key={custom.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                                <td className="p-3"><input type="text" placeholder="Örn: Memur Maaşı" value={custom.name} onChange={e=>updateCustomValuation(custom.id, 'name', e.target.value)} className="w-full p-2 border border-slate-200 rounded outline-none focus:border-indigo-400 bg-white font-semibold text-slate-700"/></td>
+                                <td className="p-3"><input type="number" placeholder="0" value={custom.initial} onChange={e=>updateCustomValuation(custom.id, 'initial', e.target.value)} className="w-full p-2 border border-slate-200 rounded outline-none focus:border-indigo-400 bg-white"/></td>
+                                <td className="p-3"><input type="number" placeholder="0" value={custom.current} onChange={e=>updateCustomValuation(custom.id, 'current', e.target.value)} className="w-full p-2 border border-slate-200 rounded outline-none focus:border-emerald-400 bg-white"/></td>
+                                <td className="p-3 text-center"><button onClick={()=>removeCustomValuation(custom.id)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={16}/></button></td>
+                             </tr>
+                          ))}
+                       </tbody>
+                    </table>
+                 </div>
                  
-                 {/* Sabit Kartlar (Yatırım Sekmesinden Çekilen Verilerle) */}
-                 {renderCurrencyValuationCard("Altın", "gr", totalInvValue.gold, activeRates.dp?.gold, currentRates.gold, "text-amber-500")}
-                 {renderCurrencyValuationCard("Dolar", "$", totalInvValue.usd, activeRates.dp?.usd, currentRates.usd, "text-green-500")}
-                 {renderCurrencyValuationCard("Euro", "€", totalInvValue.eur, activeRates.dp?.eur, currentRates.eur, "text-blue-500")}
-
-                 {/* Özel (Custom) Skala Kartları */}
-                 {valuationMetrics.map(metric => renderCustomValuationCard(metric))}
-
-                 {/* Yeni Skala Ekleme Butonu */}
-                 <button 
-                    onClick={addValuationMetric}
-                    className="bg-indigo-50/50 border-2 border-dashed border-indigo-200 rounded-2xl flex flex-col items-center justify-center p-8 text-indigo-500 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600 transition-colors min-h-[250px]"
-                 >
-                    <Plus size={32} className="mb-2"/>
-                    <span className="font-bold">Yeni Finansal Skala Ekle</span>
-                    <span className="text-xs mt-1 text-center opacity-80">(TÜFE, Endeks, Kur vs.)</span>
-                 </button>
-
+                 <div className="mt-6 flex flex-col md:flex-row justify-between items-center gap-4 border-t border-slate-100 pt-6">
+                    <button onClick={addCustomValuation} className="text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 px-4 py-2 rounded-lg transition-colors">
+                       <Plus size={16}/> Yeni Endeks Ekle
+                    </button>
+                    <button onClick={() => setShowValuationResults(true)} className="w-full md:w-auto bg-indigo-600 text-white px-8 py-3.5 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 text-lg transform hover:scale-105 transition-all">
+                      HESAPLA VE KARŞILAŞTIR <ArrowRight size={20}/>
+                    </button>
+                 </div>
               </div>
+
+              {/* SONUÇLAR VE KARTLAR */}
+              {showValuationResults && (
+                 <div className="space-y-6 animate-in slide-in-from-bottom-8 duration-500">
+                    <div className="bg-emerald-50 text-emerald-800 p-5 rounded-2xl border border-emerald-200 flex items-start sm:items-center gap-4">
+                       <div className="bg-emerald-100 p-2 rounded-full shrink-0"><Info size={24} className="text-emerald-600"/></div>
+                       <div className="text-sm leading-relaxed">
+                          Aşağıdaki kartlarda <strong>{viewedPartner.name}</strong> adlı ortağın ayrılık bedelleri hesaplanmıştır. Evin orijinal değeri girdiğiniz skalaya göre oranlanarak büyütülmüş, ardından bankaya kalan güncel borç düşülüp ortağın %{viewedResults.targetShare} payı netleştirilmiştir.
+                       </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-12">
+                       {Object.entries(valuationScenarios).map(([key, data]) => {
+                          if(!data.initial || !data.current) return null;
+                          const mult = Number(data.current) / Number(data.initial);
+                          const estHouseVal = property.price * mult; // Evin rayiç/büyümüş değeri
+                          const estBuyoutVal = (estHouseVal * (viewedResults.targetShare / 100)) - viewedResults.remainingLoanDebt;
+                          const indexedPaid = viewedResults.totalPaidOutHistory * mult; // Bugüne kadar ödediğinin enflasyonlu değeri
+                          
+                          return (
+                             <div key={key} className="bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-300 transition-all hover:shadow-md">
+                                <h4 className="text-lg font-black text-slate-800 mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+                                   {data.name}
+                                   <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-1 rounded">x{mult.toFixed(2)}</span>
+                                </h4>
+                                <div className="space-y-4">
+                                   <div className="flex justify-between items-center text-sm">
+                                      <span className="text-slate-500">Bugüne Kadar Verdiklerinin Karşılığı:</span>
+                                      <span className="font-bold text-slate-700">{formatMoney(indexedPaid)}</span>
+                                   </div>
+                                   <div className="flex justify-between items-center text-sm">
+                                      <span className="text-slate-500">Evin Ulaşmış Olması Gereken Değer:</span>
+                                      <span className="font-bold text-slate-700">{formatMoney(estHouseVal)}</span>
+                                   </div>
+                                   <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mt-4 relative overflow-hidden">
+                                      <div className="absolute right-0 bottom-0 opacity-10 -mr-2 -mb-2"><Scale size={60}/></div>
+                                      <span className="block text-[11px] font-black uppercase text-indigo-600 mb-1 relative z-10">Adil Ayrılma / Devir Bedeli</span>
+                                      <div className={`text-2xl font-black relative z-10 ${estBuyoutVal > 0 ? 'text-indigo-900' : 'text-slate-400'}`}>
+                                         {estBuyoutVal > 0 ? formatMoney(estBuyoutVal) : 'Borçlu Durumda'}
+                                      </div>
+                                   </div>
+                                </div>
+                             </div>
+                          );
+                       })}
+
+                       {customValuations.map(custom => {
+                          if(!custom.initial || !custom.current) return null;
+                          const mult = Number(custom.current) / Number(custom.initial);
+                          const estHouseVal = property.price * mult;
+                          const estBuyoutVal = (estHouseVal * (viewedResults.targetShare / 100)) - viewedResults.remainingLoanDebt;
+                          const indexedPaid = viewedResults.totalPaidOutHistory * mult;
+                          
+                          return (
+                             <div key={custom.id} className="bg-white p-6 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-300 transition-all hover:shadow-md">
+                                <h4 className="text-lg font-black text-slate-800 mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+                                   {custom.name}
+                                   <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-1 rounded">x{mult.toFixed(2)}</span>
+                                </h4>
+                                <div className="space-y-4">
+                                   <div className="flex justify-between items-center text-sm">
+                                      <span className="text-slate-500">Bugüne Kadar Verdiklerinin Karşılığı:</span>
+                                      <span className="font-bold text-slate-700">{formatMoney(indexedPaid)}</span>
+                                   </div>
+                                   <div className="flex justify-between items-center text-sm">
+                                      <span className="text-slate-500">Evin Ulaşmış Olması Gereken Değer:</span>
+                                      <span className="font-bold text-slate-700">{formatMoney(estHouseVal)}</span>
+                                   </div>
+                                   <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mt-4 relative overflow-hidden">
+                                      <div className="absolute right-0 bottom-0 opacity-10 -mr-2 -mb-2"><Scale size={60}/></div>
+                                      <span className="block text-[11px] font-black uppercase text-indigo-600 mb-1 relative z-10">Adil Ayrılma / Devir Bedeli</span>
+                                      <div className={`text-2xl font-black relative z-10 ${estBuyoutVal > 0 ? 'text-indigo-900' : 'text-slate-400'}`}>
+                                         {estBuyoutVal > 0 ? formatMoney(estBuyoutVal) : 'Borçlu Durumda'}
+                                      </div>
+                                   </div>
+                                </div>
+                             </div>
+                          );
+                       })}
+                    </div>
+                 </div>
+              )}
            </div>
         )}
 
