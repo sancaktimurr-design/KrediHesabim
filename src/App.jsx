@@ -71,6 +71,11 @@ export default function App() {
   const [myPlans, setMyPlans] = useState([]);
   const [showJoinLobbyModal, setShowJoinLobbyModal] = useState(false);
 
+  // --- HIZLI HESAPLAYICI STATE'LERİ ---
+  const [quickCalcTab, setQuickCalcTab] = useState('by_price'); // 'by_price' veya 'by_cash'
+  const [quickCalcInput, setQuickCalcInput] = useState('');
+  const [quickCalcHasAgent, setQuickCalcHasAgent] = useState(true);
+
   // --- HESAPLAMA DURUMU (STATE) ---
   const [property, setProperty] = useState({
     price: 4000000,
@@ -719,8 +724,7 @@ export default function App() {
 
     const passedMonths = paidMonths.length; 
     const bankRemainingPrincipal = totalLoanNeeded - principalPaidTotal;
-    const bankOwnershipPercent = totalTargetBaseValue > 0 ? (bankRemainingPrincipal / totalTargetBaseValue) * 100 : 0;
-
+    
     // Erken Kapama (Payoff) Hesaplaması: Kalan Ana Para + %2 Yasal Erken Kapama Cezası
     const earlyPayoffPenalty = bankRemainingPrincipal * 0.02;
     const totalEarlyPayoffAmount = bankRemainingPrincipal + earlyPayoffPenalty;
@@ -728,7 +732,7 @@ export default function App() {
     const partnerResults = partnerBaseCalculations.map(p => {
       const loanShareRatio = totalLoanNeeded > 0 ? p.requiredLoan / totalLoanNeeded : 0;
       const remainingLoanDebt = bankRemainingPrincipal * loanShareRatio; 
-      const earlyPayoffShare = totalEarlyPayoffAmount * loanShareRatio; // Ortağa düşen erken kapama tutarı
+      const earlyPayoffShare = totalEarlyPayoffAmount * loanShareRatio; 
       
       let outOfPocketExcludedExpenses = 0;
       let automatedExpenses = 0;
@@ -766,9 +770,12 @@ export default function App() {
       const totalPaidOutOverall = p.effectiveDp + outOfPocketExcludedExpenses + totalLoanDebtContribution;
 
       const currentPrincipalPaid = principalPaidTotal * loanShareRatio;
+      
+      // SAF EV MÜLKİYETİ HESAPLAMASI (Masraflar Hariç)
+      const houseEquity = p.houseDp + currentPrincipalPaid;
       let currentOwnershipPercent = 0;
-      if (totalTargetBaseValue > 0) {
-        currentOwnershipPercent = ((p.effectiveDp + currentPrincipalPaid) / totalTargetBaseValue) * 100;
+      if (property.price > 0) {
+        currentOwnershipPercent = (houseEquity / property.price) * 100;
       }
 
       return {
@@ -777,7 +784,7 @@ export default function App() {
         remainingLoanDebt,
         earlyPayoffShare,
         outOfPocketExcludedExpenses,
-        totalCalculatedExpenses, // Tapu, komisyon vb. masrafların (kişiye düşen) toplamı
+        totalCalculatedExpenses,
         principalContribution,
         interestContribution,
         totalLoanDebtContribution,
@@ -785,10 +792,18 @@ export default function App() {
         totalPaidOutOverall,
         totalPaidOutHistory,
         totalPaidInstallments,
+        houseEquity,
         currentOwnershipPercent,
         currentPrincipalPaid
       };
     });
+
+    // BANKANIN SAF EVDEKİ PAYI (Toplam ev değerinden, ortakların ödediği toplam ev payı çıkarılarak bulunur)
+    let totalHouseEquity = 0;
+    partnerResults.forEach(p => totalHouseEquity += p.houseEquity);
+    let bankHouseEquity = property.price - totalHouseEquity;
+    if (bankHouseEquity < 0) bankHouseEquity = 0;
+    const bankOwnershipPercent = property.price > 0 ? (bankHouseEquity / property.price) * 100 : 0;
 
     return {
       totalHouseDownPayment,
@@ -801,6 +816,7 @@ export default function App() {
       totalTargetShare,
       passedMonths,
       bankOwnershipPercent,
+      bankHouseEquity,
       bankRemainingPrincipal,
       earlyPayoffPenalty,
       totalEarlyPayoffAmount,
@@ -1069,6 +1085,109 @@ export default function App() {
                   <span className="font-bold text-sm text-slate-500 group-hover:text-indigo-700">Yeni Plan</span>
                </div>
 
+            </div>
+
+            {/* --- HIZLI HESAPLAYICI (LOBİ) --- */}
+            <div className="mt-16 mb-8">
+               <h2 className="text-xl md:text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                  <Calculator size={28} className="text-indigo-600"/> Hızlı Alım Gücü Hesaplayıcı
+               </h2>
+               
+               <div className="bg-white rounded-[32px] p-6 md:p-8 shadow-sm border border-slate-100">
+                  <div className="flex bg-slate-100 p-1.5 rounded-xl w-max mb-6">
+                     <button onClick={() => setQuickCalcTab('by_price')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${quickCalcTab === 'by_price' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Ev Fiyatına Göre</button>
+                     <button onClick={() => setQuickCalcTab('by_cash')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${quickCalcTab === 'by_cash' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Cebimdeki Nakite Göre</button>
+                  </div>
+
+                  {quickCalcTab === 'by_price' && (
+                     <div className="space-y-6 animate-in fade-in duration-300">
+                        <div>
+                           <label className="block text-sm font-bold text-slate-700 mb-2">Almak İstediğiniz Evin Fiyatı (TL)</label>
+                           <input type="number" value={quickCalcInput} onChange={e=>setQuickCalcInput(e.target.value)} className="w-full max-w-md p-4 text-xl rounded-2xl border-2 border-slate-100 focus:border-indigo-500 outline-none font-bold text-indigo-900 bg-slate-50 transition-colors" placeholder="Örn: 4000000" />
+                        </div>
+                        <label className="flex items-center gap-3 cursor-pointer w-max bg-slate-50 p-3 rounded-xl border border-slate-100">
+                           <input type="checkbox" checked={quickCalcHasAgent} onChange={e=>setQuickCalcHasAgent(e.target.checked)} className="w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" />
+                           <span className="text-sm font-bold text-slate-600">Emlakçı Komisyonu (%2.4) Dahil Edilsin</span>
+                        </label>
+
+                        {Number(quickCalcInput) > 0 && (
+                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                              <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                                 <span className="block text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">Zorunlu Peşinat (%30)</span>
+                                 <span className="text-lg font-black text-indigo-900">{formatMoney(Number(quickCalcInput) * 0.3)}</span>
+                              </div>
+                              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                 <span className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tapu Harcı (%4)</span>
+                                 <span className="text-lg font-black text-slate-800">{formatMoney(Number(quickCalcInput) * 0.04)}</span>
+                              </div>
+                              <div className={`p-4 rounded-2xl border transition-colors ${quickCalcHasAgent ? 'bg-slate-50 border-slate-200' : 'bg-slate-50 opacity-50 border-dashed border-slate-200'}`}>
+                                 <span className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Emlakçı (%2.4)</span>
+                                 <span className="text-lg font-black text-slate-800">{quickCalcHasAgent ? formatMoney(Number(quickCalcInput) * 0.024) : '0 ₺'}</span>
+                              </div>
+                              <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-200 shadow-sm relative overflow-hidden">
+                                 <div className="absolute -right-2 -bottom-2 opacity-10"><Zap size={48}/></div>
+                                 <span className="block text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1 relative z-10">Toplam Gereken Nakit</span>
+                                 <span className="text-xl font-black text-emerald-800 relative z-10">{formatMoney(Number(quickCalcInput) * (0.30 + 0.04 + (quickCalcHasAgent ? 0.024 : 0)))}</span>
+                              </div>
+                           </div>
+                        )}
+                     </div>
+                  )}
+
+                  {quickCalcTab === 'by_cash' && (
+                     <div className="space-y-6 animate-in fade-in duration-300">
+                        <div>
+                           <label className="block text-sm font-bold text-slate-700 mb-2">Cebinizdeki Toplam Nakit (Peşinat + Masraflar İçin)</label>
+                           <input type="number" value={quickCalcInput} onChange={e=>setQuickCalcInput(e.target.value)} className="w-full max-w-md p-4 text-xl rounded-2xl border-2 border-slate-100 focus:border-indigo-500 outline-none font-bold text-indigo-900 bg-slate-50 transition-colors" placeholder="Örn: 1500000" />
+                        </div>
+                        
+                        {Number(quickCalcInput) > 0 && (
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                              {/* Emlakçısız */}
+                              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden group hover:border-indigo-300 transition-colors">
+                                 <h4 className="font-bold text-slate-800 mb-5 flex items-center gap-2"><Home size={20} className="text-slate-400"/> Sahibinden (Emlakçısız) Alım</h4>
+                                 <div className="text-sm space-y-4">
+                                    <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                                       <span className="text-slate-500 font-medium">Alınabilecek Maksimum Ev:</span>
+                                       <span className="font-black text-xl text-indigo-700">{formatMoney(Number(quickCalcInput) / 0.34)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-slate-600">
+                                       <span>Evin Peşinatı (%30):</span>
+                                       <span className="font-bold">{formatMoney((Number(quickCalcInput) / 0.34) * 0.3)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-slate-600">
+                                       <span>Tapu Harcı Gideri (%4):</span>
+                                       <span className="font-bold">{formatMoney((Number(quickCalcInput) / 0.34) * 0.04)}</span>
+                                    </div>
+                                 </div>
+                              </div>
+                              {/* Emlakçılı */}
+                              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden group hover:border-indigo-300 transition-colors">
+                                 <h4 className="font-bold text-slate-800 mb-5 flex items-center gap-2"><Users size={20} className="text-slate-400"/> Emlakçı Aracılığıyla Alım</h4>
+                                 <div className="text-sm space-y-4">
+                                    <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                                       <span className="text-slate-500 font-medium">Alınabilecek Maksimum Ev:</span>
+                                       <span className="font-black text-xl text-indigo-700">{formatMoney(Number(quickCalcInput) / 0.364)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-slate-600">
+                                       <span>Evin Peşinatı (%30):</span>
+                                       <span className="font-bold">{formatMoney((Number(quickCalcInput) / 0.364) * 0.3)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-slate-600">
+                                       <span>Tapu Harcı Gideri (%4):</span>
+                                       <span className="font-bold">{formatMoney((Number(quickCalcInput) / 0.364) * 0.04)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-slate-600 pt-1 border-t border-slate-100">
+                                       <span>Emlakçı Komisyonu (%2.4):</span>
+                                       <span className="font-bold">{formatMoney((Number(quickCalcInput) / 0.364) * 0.024)}</span>
+                                    </div>
+                                 </div>
+                              </div>
+                           </div>
+                        )}
+                     </div>
+                  )}
+               </div>
             </div>
          </div>
 
@@ -1851,7 +1970,7 @@ export default function App() {
                   <CheckSquare size={14} className="text-emerald-400"/> {calculations.passedMonths} Taksit Ödendi Olarak İşaretlendi
                 </p>
 
-                <div className="text-xs text-slate-300 mb-2 font-medium">Toplam Proje Maliyeti ({formatMoney(calculations.totalTargetBaseValue)}) içindeki mülkiyet</div>
+                <div className="text-xs text-emerald-300 mb-2 font-semibold">Sadece Evin Değeri ({formatMoney(property.price)}) üzerinden net mülkiyet oranları</div>
                 
                 <div className="h-8 w-full rounded-full flex overflow-hidden mb-5 bg-slate-800 border border-slate-700 shadow-inner">
                   {calculations.isShareValid && calculations.partnerResults.map((p, index) => {
@@ -1870,7 +1989,7 @@ export default function App() {
                   <div 
                     className="bg-slate-600 h-full flex items-center justify-center text-xs font-bold text-slate-300 transition-all duration-700"
                     style={{ width: `${calculations.bankOwnershipPercent}%` }}
-                    title={`Banka (Kalan Borç): %${calculations.bankOwnershipPercent.toFixed(2)}`}
+                    title={`Banka (Evin Kalan Değerindeki Payı): %${calculations.bankOwnershipPercent.toFixed(2)}`}
                   >
                     {calculations.bankOwnershipPercent > 8 && `Banka: %${calculations.bankOwnershipPercent.toFixed(1)}`}
                   </div>
@@ -1894,7 +2013,7 @@ export default function App() {
                   <div className="flex justify-between items-center text-sm pt-1 border-b border-slate-800 pb-2">
                      <span className="font-medium text-slate-400 flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-slate-600"></div>
-                        Banka (Kalan Ana Para)
+                        Banka (Ev Üzerindeki Hak)
                      </span>
                      <span className="font-bold text-slate-400">
                        %{calculations.bankOwnershipPercent.toFixed(2)}
@@ -2008,6 +2127,58 @@ export default function App() {
                    </div>
                 </div>
               </section>
+
+              {/* YENİ: MASRAFLAR VE SİGORTALAR TABLOSU */}
+              <div className="mt-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                 <h3 className="text-lg font-bold text-slate-800 mb-4 border-b border-slate-100 pb-3 flex items-center gap-2">
+                   <Receipt size={18} className="text-indigo-600"/> Proje Masrafları ve Ödeme Dağılımı
+                 </h3>
+                 <div className="overflow-x-auto">
+                   <table className="w-full text-left text-sm border-collapse min-w-[500px]">
+                     <thead>
+                       <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                         <th className="p-3 font-semibold rounded-tl-lg">Masraf Kalemi</th>
+                         <th className="p-3 font-semibold">Tutar</th>
+                         {partners.map(p => <th key={p.id} className="p-3 font-semibold text-center">{p.name}</th>)}
+                         <th className="p-3 font-semibold rounded-tr-lg">Durum</th>
+                       </tr>
+                     </thead>
+                     <tbody>
+                       {expenses.map((exp) => (
+                         <tr key={exp.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                           <td className="p-3 font-medium text-slate-800">{exp.name}</td>
+                           <td className="p-3 font-bold text-slate-700">{formatMoney(exp.amount)}</td>
+                           {calculations.partnerResults.map(p => {
+                              let amountForPartner = 0;
+                              if (exp.isIncluded || !exp.splitByLoanRatio) {
+                                  amountForPartner = exp.paidBy?.[p.id] || 0;
+                              } else {
+                                  amountForPartner = (exp.amount || 0) * p.loanShareRatio;
+                              }
+                              return (
+                                <td key={p.id} className="p-3 text-center text-slate-600 font-medium">
+                                  {amountForPartner > 0 ? formatMoney(amountForPartner) : '-'}
+                                </td>
+                              );
+                           })}
+                           <td className="p-3">
+                              {exp.isIncluded ? (
+                                  <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold uppercase whitespace-nowrap">Krediye Dahil</span>
+                              ) : exp.splitByLoanRatio ? (
+                                  <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-1 rounded font-bold uppercase whitespace-nowrap">Kredi Oranında</span>
+                              ) : (
+                                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded font-bold uppercase whitespace-nowrap">Elden Peşin</span>
+                              )}
+                           </td>
+                         </tr>
+                       ))}
+                       {expenses.length === 0 && (
+                          <tr><td colSpan={4 + partners.length} className="p-4 text-center text-slate-500">Kayıtlı masraf bulunmamaktadır.</td></tr>
+                       )}
+                     </tbody>
+                   </table>
+                 </div>
+              </div>
 
             </div>
           </div>
