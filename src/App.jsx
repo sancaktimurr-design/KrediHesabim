@@ -75,6 +75,8 @@ export default function App() {
   const [quickCalcTab, setQuickCalcTab] = useState('by_price'); // 'by_price' veya 'by_cash'
   const [quickCalcInput, setQuickCalcInput] = useState('');
   const [quickCalcHasAgent, setQuickCalcHasAgent] = useState(true);
+  const [quickCalcDpPercent, setQuickCalcDpPercent] = useState(30); 
+  const [quickCalcBankFees, setQuickCalcBankFees] = useState(46600); 
 
   // --- HESAPLAMA DURUMU (STATE) ---
   const [property, setProperty] = useState({
@@ -1094,9 +1096,23 @@ export default function App() {
                </h2>
                
                <div className="bg-white rounded-[32px] p-6 md:p-8 shadow-sm border border-slate-100">
-                  <div className="flex bg-slate-100 p-1.5 rounded-xl w-max mb-6">
-                     <button onClick={() => setQuickCalcTab('by_price')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${quickCalcTab === 'by_price' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Ev Fiyatına Göre</button>
-                     <button onClick={() => setQuickCalcTab('by_cash')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${quickCalcTab === 'by_cash' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Cebimdeki Nakite Göre</button>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 border-b border-slate-100 pb-6">
+                      <div className="flex bg-slate-100 p-1.5 rounded-xl w-max">
+                         <button onClick={() => setQuickCalcTab('by_price')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${quickCalcTab === 'by_price' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Ev Fiyatına Göre</button>
+                         <button onClick={() => setQuickCalcTab('by_cash')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${quickCalcTab === 'by_cash' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Cebimdeki Nakite Göre</button>
+                      </div>
+                      
+                      {/* Ortak Ayarlar */}
+                      <div className="flex gap-4">
+                         <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Peşinat Oranı (%)</label>
+                            <input type="number" value={quickCalcDpPercent} onChange={e=>setQuickCalcDpPercent(Number(e.target.value))} className="w-28 p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold text-indigo-900 text-center focus:border-indigo-400" />
+                         </div>
+                         <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1" title="Ekspertiz, Tahsis vb.">Banka Masrafı (TL)</label>
+                            <input type="number" value={quickCalcBankFees} onChange={e=>setQuickCalcBankFees(Number(e.target.value))} className="w-32 p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold text-indigo-900 text-center focus:border-indigo-400" />
+                         </div>
+                      </div>
                   </div>
 
                   {quickCalcTab === 'by_price' && (
@@ -1110,83 +1126,138 @@ export default function App() {
                            <span className="text-sm font-bold text-slate-600">Emlakçı Komisyonu (%2.4) Dahil Edilsin</span>
                         </label>
 
-                        {Number(quickCalcInput) > 0 && (
-                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                              <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
-                                 <span className="block text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">Zorunlu Peşinat (%30)</span>
-                                 <span className="text-lg font-black text-indigo-900">{formatMoney(Number(quickCalcInput) * 0.3)}</span>
-                              </div>
-                              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                                 <span className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tapu Harcı (%4)</span>
-                                 <span className="text-lg font-black text-slate-800">{formatMoney(Number(quickCalcInput) * 0.04)}</span>
-                              </div>
-                              <div className={`p-4 rounded-2xl border transition-colors ${quickCalcHasAgent ? 'bg-slate-50 border-slate-200' : 'bg-slate-50 opacity-50 border-dashed border-slate-200'}`}>
-                                 <span className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Emlakçı (%2.4)</span>
-                                 <span className="text-lg font-black text-slate-800">{quickCalcHasAgent ? formatMoney(Number(quickCalcInput) * 0.024) : '0 ₺'}</span>
-                              </div>
-                              <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-200 shadow-sm relative overflow-hidden">
-                                 <div className="absolute -right-2 -bottom-2 opacity-10"><Zap size={48}/></div>
-                                 <span className="block text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1 relative z-10">Toplam Gereken Nakit</span>
-                                 <span className="text-xl font-black text-emerald-800 relative z-10">{formatMoney(Number(quickCalcInput) * (0.30 + 0.04 + (quickCalcHasAgent ? 0.024 : 0)))}</span>
-                              </div>
+                        {Number(quickCalcInput) > 0 && (() => {
+                           const price = Number(quickCalcInput);
+                           const dpRatio = quickCalcDpPercent / 100;
+                           const dpAmount = price * dpRatio;
+                           const loanAmount = price * (1 - dpRatio);
+                           const tapu = price * 0.04;
+                           const agent = quickCalcHasAgent ? price * 0.024 : 0;
+                           const totalCash = dpAmount + tapu + agent + quickCalcBankFees;
+
+                           return (
+                           <div>
+                               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-6">
+                                  <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                                     <span className="block text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">Peşinat (%{quickCalcDpPercent})</span>
+                                     <span className="text-lg font-black text-indigo-900">{formatMoney(dpAmount)}</span>
+                                  </div>
+                                  <div className="bg-sky-50 p-4 rounded-2xl border border-sky-200 shadow-sm relative overflow-hidden">
+                                     <div className="absolute -right-3 -top-3 opacity-10"><Landmark size={64}/></div>
+                                     <span className="block text-xs font-bold text-sky-600 uppercase tracking-wider mb-1 relative z-10">Çekilecek Kredi (%{100 - quickCalcDpPercent})</span>
+                                     <span className="text-lg font-black text-sky-900 relative z-10">{formatMoney(loanAmount)}</span>
+                                  </div>
+                                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                     <span className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tapu Harcı (%4)</span>
+                                     <span className="text-lg font-black text-slate-800">{formatMoney(tapu)}</span>
+                                  </div>
+                                  <div className={`p-4 rounded-2xl border transition-colors ${quickCalcHasAgent ? 'bg-slate-50 border-slate-200' : 'bg-slate-50 opacity-50 border-dashed border-slate-200'}`}>
+                                     <span className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Emlakçı (%2.4)</span>
+                                     <span className="text-lg font-black text-slate-800">{formatMoney(agent)}</span>
+                                  </div>
+                                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                     <span className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1" title="Ekspertiz, Kredi Tahsis, İpotek vs.">Banka Masrafları</span>
+                                     <span className="text-lg font-black text-slate-800">{formatMoney(quickCalcBankFees)}</span>
+                                  </div>
+                               </div>
+                               <div className="mt-4 bg-emerald-50 p-5 rounded-2xl border border-emerald-200 shadow-sm relative overflow-hidden flex justify-between items-center">
+                                  <div className="absolute -right-2 -bottom-2 opacity-10"><Zap size={64}/></div>
+                                  <div>
+                                     <span className="block text-sm font-bold text-emerald-700 uppercase tracking-wider mb-1 relative z-10">Cebinizden Çıkacak Toplam Nakit</span>
+                                     <span className="text-[10px] text-emerald-600 relative z-10 font-medium">(Peşinat + Tapu + Emlakçı + Banka)</span>
+                                  </div>
+                                  <span className="text-2xl md:text-3xl font-black text-emerald-800 relative z-10">{formatMoney(totalCash)}</span>
+                               </div>
                            </div>
-                        )}
+                           );
+                        })()}
                      </div>
                   )}
 
-                  {quickCalcTab === 'by_cash' && (
+                  {quickCalcTab === 'by_cash' && (() => {
+                     const cash = Number(quickCalcInput) || 0;
+                     const dpRatio = quickCalcDpPercent / 100;
+                     const netCash = cash - quickCalcBankFees;
+                     
+                     const maxPriceNoAgent = netCash > 0 ? netCash / (dpRatio + 0.04) : 0;
+                     const maxPriceWithAgent = netCash > 0 ? netCash / (dpRatio + 0.04 + 0.024) : 0;
+
+                     return (
                      <div className="space-y-6 animate-in fade-in duration-300">
                         <div>
                            <label className="block text-sm font-bold text-slate-700 mb-2">Cebinizdeki Toplam Nakit (Peşinat + Masraflar İçin)</label>
                            <input type="number" value={quickCalcInput} onChange={e=>setQuickCalcInput(e.target.value)} className="w-full max-w-md p-4 text-xl rounded-2xl border-2 border-slate-100 focus:border-indigo-500 outline-none font-bold text-indigo-900 bg-slate-50 transition-colors" placeholder="Örn: 1500000" />
                         </div>
                         
-                        {Number(quickCalcInput) > 0 && (
+                        {cash > 0 && netCash <= 0 && (
+                           <div className="bg-red-50 text-red-600 p-4 rounded-xl border border-red-200 font-medium text-sm">
+                              Girdiğiniz tutar sadece banka masraflarını ({formatMoney(quickCalcBankFees)}) karşılamaya dahi yetmiyor. Lütfen nakit tutarınızı artırın.
+                           </div>
+                        )}
+
+                        {cash > 0 && netCash > 0 && (
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                               {/* Emlakçısız */}
-                              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden group hover:border-indigo-300 transition-colors">
+                              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden group hover:border-indigo-300 transition-colors flex flex-col h-full">
                                  <h4 className="font-bold text-slate-800 mb-5 flex items-center gap-2"><Home size={20} className="text-slate-400"/> Sahibinden (Emlakçısız) Alım</h4>
-                                 <div className="text-sm space-y-4">
+                                 <div className="text-sm space-y-4 flex-1">
                                     <div className="flex justify-between items-center border-b border-slate-200 pb-3">
                                        <span className="text-slate-500 font-medium">Alınabilecek Maksimum Ev:</span>
-                                       <span className="font-black text-xl text-indigo-700">{formatMoney(Number(quickCalcInput) / 0.34)}</span>
+                                       <span className="font-black text-xl text-indigo-700">{formatMoney(maxPriceNoAgent)}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-slate-600">
-                                       <span>Evin Peşinatı (%30):</span>
-                                       <span className="font-bold">{formatMoney((Number(quickCalcInput) / 0.34) * 0.3)}</span>
+                                       <span>Evin Peşinatı (%{quickCalcDpPercent}):</span>
+                                       <span className="font-bold">{formatMoney(maxPriceNoAgent * dpRatio)}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-slate-600">
                                        <span>Tapu Harcı Gideri (%4):</span>
-                                       <span className="font-bold">{formatMoney((Number(quickCalcInput) / 0.34) * 0.04)}</span>
+                                       <span className="font-bold">{formatMoney(maxPriceNoAgent * 0.04)}</span>
                                     </div>
+                                    <div className="flex justify-between items-center text-slate-600">
+                                       <span>Banka Masrafları:</span>
+                                       <span className="font-bold">{formatMoney(quickCalcBankFees)}</span>
+                                    </div>
+                                 </div>
+                                 <div className="mt-5 pt-4 border-t border-slate-200 flex justify-between items-center">
+                                    <span className="font-bold text-sky-700">Bankadan Çekilecek Kredi:</span>
+                                    <span className="font-black text-lg text-sky-800">{formatMoney(maxPriceNoAgent * (1 - dpRatio))}</span>
                                  </div>
                               </div>
                               {/* Emlakçılı */}
-                              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden group hover:border-indigo-300 transition-colors">
+                              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden group hover:border-indigo-300 transition-colors flex flex-col h-full">
                                  <h4 className="font-bold text-slate-800 mb-5 flex items-center gap-2"><Users size={20} className="text-slate-400"/> Emlakçı Aracılığıyla Alım</h4>
-                                 <div className="text-sm space-y-4">
+                                 <div className="text-sm space-y-4 flex-1">
                                     <div className="flex justify-between items-center border-b border-slate-200 pb-3">
                                        <span className="text-slate-500 font-medium">Alınabilecek Maksimum Ev:</span>
-                                       <span className="font-black text-xl text-indigo-700">{formatMoney(Number(quickCalcInput) / 0.364)}</span>
+                                       <span className="font-black text-xl text-indigo-700">{formatMoney(maxPriceWithAgent)}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-slate-600">
-                                       <span>Evin Peşinatı (%30):</span>
-                                       <span className="font-bold">{formatMoney((Number(quickCalcInput) / 0.364) * 0.3)}</span>
+                                       <span>Evin Peşinatı (%{quickCalcDpPercent}):</span>
+                                       <span className="font-bold">{formatMoney(maxPriceWithAgent * dpRatio)}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-slate-600">
                                        <span>Tapu Harcı Gideri (%4):</span>
-                                       <span className="font-bold">{formatMoney((Number(quickCalcInput) / 0.364) * 0.04)}</span>
+                                       <span className="font-bold">{formatMoney(maxPriceWithAgent * 0.04)}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-slate-600 pt-1 border-t border-slate-100">
                                        <span>Emlakçı Komisyonu (%2.4):</span>
-                                       <span className="font-bold">{formatMoney((Number(quickCalcInput) / 0.364) * 0.024)}</span>
+                                       <span className="font-bold">{formatMoney(maxPriceWithAgent * 0.024)}</span>
                                     </div>
+                                    <div className="flex justify-between items-center text-slate-600">
+                                       <span>Banka Masrafları:</span>
+                                       <span className="font-bold">{formatMoney(quickCalcBankFees)}</span>
+                                    </div>
+                                 </div>
+                                 <div className="mt-5 pt-4 border-t border-slate-200 flex justify-between items-center">
+                                    <span className="font-bold text-sky-700">Bankadan Çekilecek Kredi:</span>
+                                    <span className="font-black text-lg text-sky-800">{formatMoney(maxPriceWithAgent * (1 - dpRatio))}</span>
                                  </div>
                               </div>
                            </div>
                         )}
                      </div>
-                  )}
+                     );
+                  })()}
                </div>
             </div>
          </div>
